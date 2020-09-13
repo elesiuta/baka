@@ -25,17 +25,21 @@ import magic
 
 
 def init_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Baka Admin Kludge Assistant",
+    parser = argparse.ArgumentParser(description="Baka Admin's Kludge Assistant",
                                      usage="%(prog)s [--dry-run] <argument>")
     maingrp = parser.add_mutually_exclusive_group()
     maingrp.add_argument("--init", dest="init", action="store_true",
                          help="init git repo in system root")
     maingrp.add_argument("--add", dest="add", action="store_true",
-                         help="scan for files and add to repo")
-    maingrp.add_argument("--commit", dest="commit", action="store_true",
-                         help="add and commit your changes to tracked files")
-    maingrp.add_argument("--git", dest="git", action="store", metavar="args", nargs=argparse.REMAINDER,
-                         help="wrapper to run git command with args (TODO)")
+                         help="scan for new files to add to repo and commit")
+    maingrp.add_argument("--commit", dest="commit", type=str, metavar="msg",
+                         help="git add -u and commit your changes to tracked files")
+    maingrp.add_argument("--git", dest="git", nargs=argparse.REMAINDER,
+                         help="wrapper to run git command with args")
+    maingrp.add_argument("--install", dest="install", nargs=argparse.REMAINDER,
+                         help="install package(s) and commit changes")
+    maingrp.add_argument("--remove", dest="remove", nargs=argparse.REMAINDER, type=list, default=None,
+                         help="remove package(s) and commit changes")
     maingrp.add_argument("--upgrade", dest="upgrade", action="store_true",
                          help="upgrade packages on system and commit changes")
     maingrp.add_argument("--verify", dest="verify", action="store_true",
@@ -54,13 +58,10 @@ def is_possible_config(file_path: str) -> bool:
     # https://github.com/ahupp/python-magic (alternative)
     mimetype = mimetypes.guess_type(file_path)[0]
     if mimetype is None or mimetype.startswith("application") or mimetype.startswith("text"):
-        try:
+        if os.path.isfile(file_path):
             if magic.from_file(file_path, True).startswith("text"):
                 return not is_binary(file_path)
-        except Exception as e:
-            print(type(e).__name__ + str(e.args) + file_path)
-    else:
-        return False
+    return False
 
 
 def baka_init(dry_run: bool) -> int:
@@ -94,22 +95,51 @@ def baka_add(dry_run: bool, config: "Config"):
     run(["git", "commit", "-m", "baka add"])
 
 
-def baka_commit(dry_run: bool):
+def baka_commit(dry_run: bool, msg: str):
     cmds = [
         ["git", "add", "-u"],
-        ["git", "commit", "-m", "baka commit admin changes"]
+        ["git", "commit", "-m", "baka commit " + msg]
     ]
     for cmd in cmds:
         if dry_run:
             print(" ".join(cmd))
         else:
-            subprocess.run(cmd).returncode
+            subprocess.run(cmd)
 
 
-def baka_git():
-    # TODO
-    # unnecessary until logging is implimented, even then?
-    pass
+def baka_git(dry_run: bool, args: list):
+    cmd = ["git"] + args
+    if dry_run:
+        print(" ".join(cmd))
+        return 0
+    else:
+        return subprocess.run(cmd).returncode
+
+
+def baka_install(dry_run: bool, config: "Config", packages: list):
+    cmds = [
+        config.cmd_install + packages,
+        ["git", "add", "-u"],
+        ["git", "commit", "-m", "baka install"]
+    ]
+    for cmd in cmds:
+        if dry_run:
+            print(" ".join(cmd))
+        else:
+            subprocess.run(cmd)
+
+
+def baka_remove(dry_run: bool, config: "Config", packages: list):
+    cmds = [
+        config.cmd_remove + packages,
+        ["git", "add", "-u"],
+        ["git", "commit", "-m", "baka remove"]
+    ]
+    for cmd in cmds:
+        if dry_run:
+            print(" ".join(cmd))
+        else:
+            subprocess.run(cmd)
 
 
 def baka_upgrade(dry_run: bool, config: "Config"):
@@ -122,7 +152,7 @@ def baka_upgrade(dry_run: bool, config: "Config"):
         if dry_run:
             print(" ".join(cmd))
         else:
-            subprocess.run(cmd).returncode
+            subprocess.run(cmd)
 
 
 def baka_verify(dry_run: bool, config: "Config"):
@@ -130,7 +160,7 @@ def baka_verify(dry_run: bool, config: "Config"):
     if dry_run:
         print(" ".join(cmd))
     else:
-        subprocess.run(cmd).returncode
+        subprocess.run(cmd)
 
 
 def baka_apply():
@@ -154,6 +184,8 @@ class Config:
             with open(config_path, "r", encoding="utf-8", errors="surrogateescape") as json_file:
                 config = json.load(json_file)
         # default config
+        self.cmd_install = ["apt", "install"]
+        self.cmd_remove = ["apt", "autoremove", "--purge"]
         self.cmd_upgrade = ["apt", "update", "&&", "apt", "upgrade"]
         self.cmd_verify_packages = ["debsums", "-ac"]
         self.ignored_folders = [
@@ -161,7 +193,6 @@ class Config:
         ]
         self.tracked_paths = [
             "/etc",
-            "/usr/share",
             os.path.expanduser("~/.config"),
             os.path.expanduser("~/.local/share")
         ]
@@ -206,9 +237,13 @@ def main() -> int:
     elif args.add:
         baka_add(args.dry_run, config)
     elif args.commit:
-        baka_commit(args.dry_run)
+        baka_commit(args.dry_run, args.commit)
     elif args.git:
-        baka_git()
+        baka_git(args.dry_run, args.git)
+    elif args.install:
+        baka_install(args.dry_run, config, args.install)
+    elif args.remove is not None:
+        baka_remove(args.dry_run, config, args.remove)
     elif args.upgrade:
         baka_upgrade(args.dry_run, config)
     elif args.verify:
