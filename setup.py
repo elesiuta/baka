@@ -12,7 +12,7 @@ setuptools.setup(
     url="https://github.com/elesiuta/baka",
     py_modules=["baka"],
     entry_points={"console_scripts": ["baka = baka:main"]},
-    install_requires=["binaryornot"],
+    install_requires=["binaryornot", "python-magic"],
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)"

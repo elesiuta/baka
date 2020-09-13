@@ -15,11 +15,13 @@
 
 import argparse
 import json
+import mimetypes
 import os
 import subprocess
 import sys
 
 from binaryornot.check import is_binary
+import magic
 
 
 def init_parser() -> argparse.ArgumentParser:
@@ -49,10 +51,16 @@ def init_parser() -> argparse.ArgumentParser:
 
 def is_possible_config(file_path: str) -> bool:
     # https://stackoverflow.com/questions/898669/how-can-i-detect-if-a-file-is-binary-non-text-in-python
-    # https://docs.python.org/3.6/library/mimetypes.html
-    # https://github.com/ahupp/python-magic
-    # https://pypi.org/project/binaryornot/
-    return not is_binary(file_path)
+    # https://github.com/ahupp/python-magic (alternative)
+    mimetype = mimetypes.guess_type(file_path)[0]
+    if mimetype is None or mimetype.startswith("application") or mimetype.startswith("text"):
+        try:
+            if magic.from_file(file_path, True).startswith("text"):
+                return not is_binary(file_path)
+        except Exception as e:
+            print(type(e).__name__ + str(e.args) + file_path)
+    else:
+        return False
 
 
 def baka_init(dry_run: bool) -> int:
@@ -70,20 +78,18 @@ def baka_add(dry_run: bool, config: "Config"):
         run = lambda cmd: print(" ".join(cmd))
     else:
         run = lambda cmd: subprocess.run(cmd)
-    # check every file on system that is not ignored
-    for dir_path, subdir_list, file_list in os.walk("/", followlinks=False):
-        # ignore paths and folders
-        if dir_path in config.ignored_paths:
-            subdir_list.clear()
-            continue
-        for subdir in subdir_list:
-            if subdir in config.ignored_folders:
-                subdir_list.remove(subdir)
-        # check if file is possible config and add to git
-        for file_name in file_list:
-            file_path = os.path.join(dir_path, file_name)
-            if is_possible_config(file_path):
-                run(["git", "add", file_path])
+    # walk through tracked directories
+    for tracked_path in config.tracked_paths:
+        for dir_path, subdir_list, file_list in os.walk(tracked_path, followlinks=False):
+            # ignored folders
+            for subdir in subdir_list:
+                if subdir in config.ignored_folders:
+                    subdir_list.remove(subdir)
+            # check if file should be tracked and add to git
+            for file_name in file_list:
+                file_path = os.path.join(dir_path, file_name)
+                if is_possible_config(file_path):
+                    run(["git", "add", file_path])
     # commit changes
     run(["git", "commit", "-m", "baka add"])
 
@@ -153,20 +159,19 @@ class Config:
         self.ignored_folders = [
             ".git"
         ]
-        self.ignored_paths = [
-            "/proc",
-            "/media",
-            "/var/log",
-            "/var/tmp",
-            "/tmp"
+        self.tracked_paths = [
+            "/etc",
+            "/usr/share",
+            os.path.expanduser("~/.config"),
+            os.path.expanduser("~/.local/share")
         ]
         # load config
         for key in config:
             if config[key] is not None and hasattr(self, key):
                 self.__setattr__(key, config[key])
         # normalize paths
-        for i in range(len(self.ignored_paths)):
-            self.ignored_paths[i] = os.path.normpath(self.ignored_paths[i])
+        for i in range(len(self.tracked_paths)):
+            self.tracked_paths[i] = os.path.normpath(self.tracked_paths[i])
         # write config file if does not exist
         if not os.path.exists(config_path):
             if not os.path.isdir(os.path.dirname(config_path)):
