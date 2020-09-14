@@ -26,7 +26,7 @@ import magic
 
 def init_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Baka Admin's Kludge Assistant",
-                                     usage="%(prog)s [--dry-run] <argument>")
+                                     usage="sudo -E python3 -m baka [--dry-run] <argument>")
     maingrp = parser.add_mutually_exclusive_group()
     maingrp.add_argument("--init", dest="init", action="store_true",
                          help="init git repo in system root")
@@ -44,6 +44,10 @@ def init_parser() -> argparse.ArgumentParser:
                          help="upgrade packages on system and commit changes")
     maingrp.add_argument("--verify", dest="verify", action="store_true",
                          help="verify all packages on system")
+    maingrp.add_argument("--diff", dest="diff", action="store_true",
+                         help="show git diff --stat")
+    maingrp.add_argument("--log", dest="log", action="store_true",
+                         help="show pretty git log")
     maingrp.add_argument("--apply", dest="apply", action="store_true",
                          help="apply patches to system (TODO)")
     maingrp.add_argument("--export", dest="export", action="store_true",
@@ -65,7 +69,11 @@ def is_possible_config(file_path: str) -> bool:
 
 
 def baka_init(dry_run: bool) -> int:
-    cmd = ["git", "init"]
+    cmd = [
+        "git", "init", "&&",
+        "git", "config", "user.name", "baka admin", "&&",
+        "git", "config", "user.email", "baka@" + os.uname().nodename
+    ]
     if dry_run:
         print(" ".join(cmd))
         return 0
@@ -80,6 +88,7 @@ def baka_add(dry_run: bool, config: "Config"):
     else:
         run = lambda cmd: subprocess.run(cmd)
     # walk through tracked directories
+    tmp_debug_log = []
     for tracked_path in config.tracked_paths:
         for dir_path, subdir_list, file_list in os.walk(tracked_path, followlinks=False):
             # ignored folders
@@ -89,6 +98,8 @@ def baka_add(dry_run: bool, config: "Config"):
             # check if file should be tracked and add to git
             for file_name in file_list:
                 file_path = os.path.join(dir_path, file_name)
+                if os.path.isfile(file_path):
+                    tmp_debug_log.append([file_path, mimetypes.guess_type(file_path)[0].startswith("application"), mimetypes.guess_type(file_path)[0].startswith("text"),magic.from_file(file_path, True).startswith("text"),not is_binary(file_path)])
                 if is_possible_config(file_path):
                     run(["git", "add", file_path])
     # commit changes
@@ -163,6 +174,25 @@ def baka_verify(dry_run: bool, config: "Config"):
         subprocess.run(cmd)
 
 
+def baka_diff(dry_run: bool):
+    cmd = ["git", "diff", "--stat"]
+    if dry_run:
+        print(" ".join(cmd))
+    else:
+        subprocess.run(cmd)
+
+
+def baka_log(dry_run: bool):
+    cmd = [
+        "git", "log", "--abbrev-commit", "--all", "--decorate", "--graph", "--stat",
+        "--format=format:%C(bold blue)%h%C(reset) - %C(bold cyan)%aD%C(reset) %C(bold green)(%ar)%C(reset)%C(bold yellow)%d%C(reset)%n%C(bold white)%s%C(reset)%C(dim white) - %an%C(reset)"
+    ]
+    if dry_run:
+        print(" ".join(cmd))
+    else:
+        subprocess.run(cmd)
+
+
 def baka_apply():
     # TODO
     # either take path as argument or use .baka/patches or something
@@ -214,12 +244,6 @@ class Config:
                 print("Error: Could not write config file to " + config_path)
 
 
-class Log:
-    def __init__(self):
-        # TODO
-        pass
-
-
 def main() -> int:
     # parse arguments
     parser = init_parser()
@@ -248,6 +272,10 @@ def main() -> int:
         baka_upgrade(args.dry_run, config)
     elif args.verify:
         baka_verify(args.dry_run, config)
+    elif args.diff:
+        baka_diff(args.dry_run)
+    elif args.log:
+        baka_log(args.dry_run)
     elif args.apply:
         baka_apply()
     elif args.export:
