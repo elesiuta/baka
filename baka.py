@@ -14,9 +14,11 @@
 # https://github.com/elesiuta/baka
 
 import argparse
+import csv
 import json
 import mimetypes
 import os
+import shlex
 import subprocess
 import sys
 
@@ -63,32 +65,36 @@ def is_possible_config(file_path: str) -> bool:
     mimetype = mimetypes.guess_type(file_path)[0]
     if mimetype is None or mimetype.startswith("application") or mimetype.startswith("text"):
         if os.path.isfile(file_path):
-            if magic.from_file(file_path, True).startswith("text"):
-                return not is_binary(file_path)
+            try:
+                if magic.from_file(file_path, True).startswith("text"):
+                    return not is_binary(file_path)
+            except Exception:
+                pass
     return False
 
 
 def baka_init(dry_run: bool) -> int:
     cmd = [
         "git", "init", "&&",
+        "git", "config", "core.worktree", "/", "&&",
         "git", "config", "user.name", "baka admin", "&&",
         "git", "config", "user.email", "baka@" + os.uname().nodename
     ]
     if dry_run:
-        print(" ".join(cmd))
+        print(shlex.join(["bash", "-c", " ".join(cmd)]))
         return 0
     else:
-        return subprocess.run(cmd).returncode
+        return subprocess.run(["bash", "-c", " ".join(cmd)]).returncode
 
 
 def baka_add(dry_run: bool, config: "Config"):
     # init cmd runner
     if dry_run:
-        run = lambda cmd: print(" ".join(cmd))
+        run = lambda cmd: print(shlex.join(cmd))
     else:
         run = lambda cmd: subprocess.run(cmd)
     # walk through tracked directories
-    tmp_debug_log = []
+    ignored_file_log = []
     for tracked_path in config.tracked_paths:
         for dir_path, subdir_list, file_list in os.walk(tracked_path, followlinks=False):
             # ignored folders
@@ -98,12 +104,16 @@ def baka_add(dry_run: bool, config: "Config"):
             # check if file should be tracked and add to git
             for file_name in file_list:
                 file_path = os.path.join(dir_path, file_name)
-                if os.path.isfile(file_path):
-                    tmp_debug_log.append([file_path, mimetypes.guess_type(file_path)[0].startswith("application"), mimetypes.guess_type(file_path)[0].startswith("text"),magic.from_file(file_path, True).startswith("text"),not is_binary(file_path)])
                 if is_possible_config(file_path):
                     run(["git", "add", file_path])
+                else:
+                    ignored_file_log.append([file_path])
     # commit changes
     run(["git", "commit", "-m", "baka add"])
+    # write log
+    with open(os.path.expanduser("~/.baka/ignored_file_log.csv"), "w", encoding="utf-8", errors="surrogateescape") as csv_file:
+        csv_writer = csv.writer(csv_file)
+        csv_writer.writerows(ignored_file_log)
 
 
 def baka_commit(dry_run: bool, msg: str):
@@ -113,7 +123,7 @@ def baka_commit(dry_run: bool, msg: str):
     ]
     for cmd in cmds:
         if dry_run:
-            print(" ".join(cmd))
+            print(shlex.join(cmd))
         else:
             subprocess.run(cmd)
 
@@ -121,7 +131,7 @@ def baka_commit(dry_run: bool, msg: str):
 def baka_git(dry_run: bool, args: list):
     cmd = ["git"] + args
     if dry_run:
-        print(" ".join(cmd))
+        print(shlex.join(cmd))
         return 0
     else:
         return subprocess.run(cmd).returncode
@@ -135,7 +145,7 @@ def baka_install(dry_run: bool, config: "Config", packages: list):
     ]
     for cmd in cmds:
         if dry_run:
-            print(" ".join(cmd))
+            print(shlex.join(cmd))
         else:
             subprocess.run(cmd)
 
@@ -148,7 +158,7 @@ def baka_remove(dry_run: bool, config: "Config", packages: list):
     ]
     for cmd in cmds:
         if dry_run:
-            print(" ".join(cmd))
+            print(shlex.join(cmd))
         else:
             subprocess.run(cmd)
 
@@ -161,7 +171,7 @@ def baka_upgrade(dry_run: bool, config: "Config"):
     ]
     for cmd in cmds:
         if dry_run:
-            print(" ".join(cmd))
+            print(shlex.join(cmd))
         else:
             subprocess.run(cmd)
 
@@ -169,7 +179,7 @@ def baka_upgrade(dry_run: bool, config: "Config"):
 def baka_verify(dry_run: bool, config: "Config"):
     cmd = config.cmd_verify_packages
     if dry_run:
-        print(" ".join(cmd))
+        print(shlex.join(cmd))
     else:
         subprocess.run(cmd)
 
@@ -177,7 +187,7 @@ def baka_verify(dry_run: bool, config: "Config"):
 def baka_diff(dry_run: bool):
     cmd = ["git", "diff", "--stat"]
     if dry_run:
-        print(" ".join(cmd))
+        print(shlex.join(cmd))
     else:
         subprocess.run(cmd)
 
@@ -188,7 +198,7 @@ def baka_log(dry_run: bool):
         "--format=format:%C(bold blue)%h%C(reset) - %C(bold cyan)%aD%C(reset) %C(bold green)(%ar)%C(reset)%C(bold yellow)%d%C(reset)%n%C(bold white)%s%C(reset)%C(dim white) - %an%C(reset)"
     ]
     if dry_run:
-        print(" ".join(cmd))
+        print(shlex.join(cmd))
     else:
         subprocess.run(cmd)
 
@@ -208,16 +218,16 @@ def baka_export():
 class Config:
     def __init__(self):
         # read config file
-        config_path = os.path.join(os.path.expanduser("~"), ".baka", "config.json")
+        config_path = os.path.expanduser("~/.baka/config.json")
         config = {}
         if os.path.exists(config_path):
             with open(config_path, "r", encoding="utf-8", errors="surrogateescape") as json_file:
                 config = json.load(json_file)
         # default config
-        self.cmd_install = ["apt", "install"]
-        self.cmd_remove = ["apt", "autoremove", "--purge"]
-        self.cmd_upgrade = ["apt", "update", "&&", "apt", "upgrade"]
-        self.cmd_verify_packages = ["debsums", "-ac"]
+        self.cmd_install = ["sudo", "apt", "install"]
+        self.cmd_remove = ["sudo", "apt", "autoremove", "--purge"]
+        self.cmd_upgrade = ["bash", "-c", "sudo apt update && sudo apt upgrade"]
+        self.cmd_verify_packages = ["sudo", "debsums", "-ac"]
         self.ignored_folders = [
             ".git"
         ]
@@ -248,13 +258,10 @@ def main() -> int:
     # parse arguments
     parser = init_parser()
     args = parser.parse_args()
-    # check for root
-    if not sys.platform.startswith("linux") or os.getuid() != 0:
-        raise Exception("Error: This programs needs to be run as root, exiting")
     # init config
     config = Config()
-    # change cwd to /
-    os.chdir("/")
+    # change cwd to repo folder
+    os.chdir(os.path.expanduser("~/.baka"))
     # execute function
     if args.init:
         return baka_init(args.dry_run)
