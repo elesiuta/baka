@@ -101,10 +101,13 @@ def main() -> int:
             ["git", "init"],
             ["git", "config", "core.worktree", "/"],
             ["git", "config", "user.name", "baka admin"],
-            ["git", "config", "user.email", "baka@" + os.uname().nodename]
+            ["git", "config", "user.email", "baka@" + os.uname().nodename],
+            ["bash", "-c", "echo '*~\n*.dpkg-new\n*.dpkg-old\n' | cat > .gitignore"]
         ]
     elif args.add:
-        cmds = [["git", "add", "--ignore-errors", path] for path in config.tracked_paths] + [["git", "commit", "-m", "baka add"]]
+        cmds_add = [["git", "add", "--ignore-errors", path] for path in config.tracked_paths]
+        cmds_commit = [["git", "commit", "-m", "baka add"]]
+        cmds = cmds_add + cmds_commit
     elif args.commit:
         cmds = [
             ["git", "add", "-u"],
@@ -113,11 +116,9 @@ def main() -> int:
     elif args.git:
         cmd = ["git"] + args.git
     elif args.install:
-        cmds = [
-            config.cmd_install + args.install,
-            ["git", "add", "-u"],
-            ["git", "commit", "-m", "baka install"]
-        ]
+        cmds_add = [["git", "add", "--ignore-errors", path] for path in config.tracked_paths]
+        cmds_install = [config.cmd_install + args.install]
+        cmds = cmds_add + [["git", "commit", "-m", "baka pre-install"]] + cmds_install + [["git", "commit", "-m", "baka install " + " ".join(args.install)]]
     elif args.remove is not None:
         cmds = [
             config.cmd_remove + args.remove,
