@@ -54,128 +54,6 @@ def init_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def baka_init(dry_run: bool) -> int:
-    cmd = [
-        "git", "init", "&&",
-        "git", "config", "core.worktree", "/", "&&",
-        "git", "config", "user.name", "baka admin", "&&",
-        "git", "config", "user.email", "baka@" + os.uname().nodename
-    ]
-    if dry_run:
-        print(shlex.join(["bash", "-c", " ".join(cmd)]))
-        return 0
-    else:
-        return subprocess.run(["bash", "-c", " ".join(cmd)]).returncode
-
-
-def baka_add(dry_run: bool, config: "Config"):
-    cmds = [["git", "add", "--ignore-errors", path] for path in config.tracked_paths] + [["git", "commit", "-m", "baka add"]]
-    for cmd in cmds:
-        if dry_run:
-            print(shlex.join(cmd))
-        else:
-            subprocess.run(cmd)
-
-
-def baka_commit(dry_run: bool, msg: str):
-    cmds = [
-        ["git", "add", "-u"],
-        ["git", "commit", "-m", "baka commit " + msg]
-    ]
-    for cmd in cmds:
-        if dry_run:
-            print(shlex.join(cmd))
-        else:
-            subprocess.run(cmd)
-
-
-def baka_git(dry_run: bool, args: list):
-    cmd = ["git"] + args
-    if dry_run:
-        print(shlex.join(cmd))
-        return 0
-    else:
-        return subprocess.run(cmd).returncode
-
-
-def baka_install(dry_run: bool, config: "Config", packages: list):
-    cmds = [
-        config.cmd_install + packages,
-        ["git", "add", "-u"],
-        ["git", "commit", "-m", "baka install"]
-    ]
-    for cmd in cmds:
-        if dry_run:
-            print(shlex.join(cmd))
-        else:
-            subprocess.run(cmd)
-
-
-def baka_remove(dry_run: bool, config: "Config", packages: list):
-    cmds = [
-        config.cmd_remove + packages,
-        ["git", "add", "-u"],
-        ["git", "commit", "-m", "baka remove"]
-    ]
-    for cmd in cmds:
-        if dry_run:
-            print(shlex.join(cmd))
-        else:
-            subprocess.run(cmd)
-
-
-def baka_upgrade(dry_run: bool, config: "Config"):
-    cmds = [
-        config.cmd_upgrade,
-        ["git", "add", "-u"],
-        ["git", "commit", "-m", "baka upgrade"]
-    ]
-    for cmd in cmds:
-        if dry_run:
-            print(shlex.join(cmd))
-        else:
-            subprocess.run(cmd)
-
-
-def baka_verify(dry_run: bool, config: "Config"):
-    cmd = config.cmd_verify_packages
-    if dry_run:
-        print(shlex.join(cmd))
-    else:
-        subprocess.run(cmd)
-
-
-def baka_diff(dry_run: bool):
-    cmd = ["git", "diff", "--stat"]
-    if dry_run:
-        print(shlex.join(cmd))
-    else:
-        subprocess.run(cmd)
-
-
-def baka_log(dry_run: bool):
-    cmd = [
-        "git", "log", "--abbrev-commit", "--all", "--decorate", "--graph", "--stat",
-        "--format=format:%C(bold blue)%h%C(reset) - %C(bold cyan)%aD%C(reset) %C(bold green)(%ar)%C(reset)%C(bold yellow)%d%C(reset)%n%C(bold white)%s%C(reset)%C(dim white) - %an%C(reset)"
-    ]
-    if dry_run:
-        print(shlex.join(cmd))
-    else:
-        subprocess.run(cmd)
-
-
-def baka_apply():
-    # TODO
-    # either take path as argument or use .baka/patches or something
-    pass
-
-
-def baka_export():
-    # TODO
-    # either take path as argument or use .baka/patches or something
-    pass
-
-
 class Config:
     def __init__(self):
         # read config file
@@ -217,31 +95,60 @@ def main() -> int:
     config = Config()
     # change cwd to repo folder
     os.chdir(os.path.expanduser("~/.baka"))
-    # execute function
+    # select commands
     if args.init:
-        return baka_init(args.dry_run)
+        cmds = [
+            ["git", "init"],
+            ["git", "config", "core.worktree", "/"],
+            ["git", "config", "user.name", "baka admin"],
+            ["git", "config", "user.email", "baka@" + os.uname().nodename]
+        ]
     elif args.add:
-        baka_add(args.dry_run, config)
+        cmds = [["git", "add", "--ignore-errors", path] for path in config.tracked_paths] + [["git", "commit", "-m", "baka add"]]
     elif args.commit:
-        baka_commit(args.dry_run, args.commit)
+        cmds = [
+            ["git", "add", "-u"],
+            ["git", "commit", "-m", "baka commit " + args.commit]
+        ]
     elif args.git:
-        baka_git(args.dry_run, args.git)
+        cmd = ["git"] + args.git
     elif args.install:
-        baka_install(args.dry_run, config, args.install)
+        cmds = [
+            config.cmd_install + args.install,
+            ["git", "add", "-u"],
+            ["git", "commit", "-m", "baka install"]
+        ]
     elif args.remove is not None:
-        baka_remove(args.dry_run, config, args.remove)
+        cmds = [
+            config.cmd_remove + args.remove,
+            ["git", "add", "-u"],
+            ["git", "commit", "-m", "baka remove"]
+        ]
     elif args.upgrade:
-        baka_upgrade(args.dry_run, config)
+        cmds = [
+            config.cmd_upgrade,
+            ["git", "add", "-u"],
+            ["git", "commit", "-m", "baka upgrade"]
+        ]
     elif args.verify:
-        baka_verify(args.dry_run, config)
+        cmds = [config.cmd_verify_packages]
     elif args.diff:
-        baka_diff(args.dry_run)
+        cmds = [["git", "diff", "--stat"]]
     elif args.log:
-        baka_log(args.dry_run)
+        cmds = [[
+            "git", "log", "--abbrev-commit", "--all", "--decorate", "--graph", "--stat",
+            "--format=format:%C(bold blue)%h%C(reset) - %C(bold cyan)%aD%C(reset) %C(bold green)(%ar)%C(reset)%C(bold yellow)%d%C(reset)%n%C(bold white)%s%C(reset)%C(dim white) - %an%C(reset)"
+        ]]
     elif args.apply:
-        baka_apply()
+        cmds = [] # TODO
     elif args.export:
-        baka_export()
+        cmds = [] # TODO
+    # execute commands
+    for cmd in cmds:
+        if args.dry_run:
+            print(shlex.join(cmd))
+        else:
+            subprocess.run(cmd)
     return 0
 
 
