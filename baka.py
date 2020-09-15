@@ -14,21 +14,16 @@
 # https://github.com/elesiuta/baka
 
 import argparse
-import csv
 import json
-import mimetypes
 import os
 import shlex
 import subprocess
 import sys
 
-from binaryornot.check import is_binary
-import magic
-
 
 def init_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Baka Admin's Kludge Assistant",
-                                     usage="sudo -E python3 -m baka [--dry-run] <argument>")
+                                     usage="%(prog)s [--dry-run] <argument>")
     maingrp = parser.add_mutually_exclusive_group()
     maingrp.add_argument("--init", dest="init", action="store_true",
                          help="init git repo in system root")
@@ -59,20 +54,6 @@ def init_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def is_possible_config(file_path: str) -> bool:
-    # https://stackoverflow.com/questions/898669/how-can-i-detect-if-a-file-is-binary-non-text-in-python
-    # https://github.com/ahupp/python-magic (alternative)
-    mimetype = mimetypes.guess_type(file_path)[0]
-    if mimetype is None or mimetype.startswith("application") or mimetype.startswith("text"):
-        if os.path.isfile(file_path):
-            try:
-                if magic.from_file(file_path, True).startswith("text"):
-                    return not is_binary(file_path)
-            except Exception:
-                pass
-    return False
-
-
 def baka_init(dry_run: bool) -> int:
     cmd = [
         "git", "init", "&&",
@@ -88,32 +69,12 @@ def baka_init(dry_run: bool) -> int:
 
 
 def baka_add(dry_run: bool, config: "Config"):
-    # init cmd runner
-    if dry_run:
-        run = lambda cmd: print(shlex.join(cmd))
-    else:
-        run = lambda cmd: subprocess.run(cmd)
-    # walk through tracked directories
-    ignored_file_log = []
-    for tracked_path in config.tracked_paths:
-        for dir_path, subdir_list, file_list in os.walk(tracked_path, followlinks=False):
-            # ignored folders
-            for subdir in subdir_list:
-                if subdir in config.ignored_folders:
-                    subdir_list.remove(subdir)
-            # check if file should be tracked and add to git
-            for file_name in file_list:
-                file_path = os.path.join(dir_path, file_name)
-                if is_possible_config(file_path):
-                    run(["git", "add", file_path])
-                else:
-                    ignored_file_log.append([file_path])
-    # commit changes
-    run(["git", "commit", "-m", "baka add"])
-    # write log
-    with open(os.path.expanduser("~/.baka/ignored_file_log.csv"), "w", encoding="utf-8", errors="surrogateescape") as csv_file:
-        csv_writer = csv.writer(csv_file)
-        csv_writer.writerows(ignored_file_log)
+    cmds = [["git", "add", "--ignore-errors", path] for path in config.tracked_paths] + [["git", "commit", "-m", "baka add"]]
+    for cmd in cmds:
+        if dry_run:
+            print(shlex.join(cmd))
+        else:
+            subprocess.run(cmd)
 
 
 def baka_commit(dry_run: bool, msg: str):
@@ -228,21 +189,15 @@ class Config:
         self.cmd_remove = ["sudo", "apt", "autoremove", "--purge"]
         self.cmd_upgrade = ["bash", "-c", "sudo apt update && sudo apt upgrade"]
         self.cmd_verify_packages = ["sudo", "debsums", "-ac"]
-        self.ignored_folders = [
-            ".git"
-        ]
         self.tracked_paths = [
-            "/etc",
-            os.path.expanduser("~/.config"),
-            os.path.expanduser("~/.local/share")
+            "/etc/.",
+            os.path.expanduser("~/.config/."),
+            os.path.expanduser("~/.local/share/.")
         ]
         # load config
         for key in config:
             if config[key] is not None and hasattr(self, key):
                 self.__setattr__(key, config[key])
-        # normalize paths
-        for i in range(len(self.tracked_paths)):
-            self.tracked_paths[i] = os.path.normpath(self.tracked_paths[i])
         # write config file if does not exist
         if not os.path.exists(config_path):
             if not os.path.isdir(os.path.dirname(config_path)):
