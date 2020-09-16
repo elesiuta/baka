@@ -45,10 +45,6 @@ def init_parser() -> argparse.ArgumentParser:
                          help="show git diff --stat")
     maingrp.add_argument("--log", dest="log", action="store_true",
                          help="show pretty git log")
-    maingrp.add_argument("--apply", dest="apply", action="store_true",
-                         help="apply patches to system (TODO)")
-    maingrp.add_argument("--export", dest="export", action="store_true",
-                         help="export patches of diffs against base system (TODO)")
     parser.add_argument("-n", "--dry-run", dest="dry_run", action="store_true",
                         help="print system commands instead of executing them")
     return parser
@@ -105,20 +101,20 @@ def main() -> int:
             ["bash", "-c", "echo '*~\n*.dpkg-new\n*.dpkg-old\n' | cat > .gitignore"]
         ]
     elif args.add:
-        cmds_add = [["git", "add", "--ignore-errors", path] for path in config.tracked_paths]
-        cmds_commit = [["git", "commit", "-m", "baka add"]]
-        cmds = cmds_add + cmds_commit
+        cmds = [["git", "add", "--ignore-errors", path] for path in config.tracked_paths]
+        cmds += [["git", "commit", "-m", "baka add"]]
     elif args.commit:
         cmds = [
             ["git", "add", "-u"],
             ["git", "commit", "-m", "baka commit " + args.commit]
         ]
     elif args.git:
-        cmd = ["git"] + args.git
+        cmds = [["git"] + args.git]
     elif args.install:
-        cmds_add = [["git", "add", "--ignore-errors", path] for path in config.tracked_paths]
-        cmds_install = [config.cmd_install + args.install]
-        cmds = cmds_add + [["git", "commit", "-m", "baka pre-install"]] + cmds_install + [["git", "commit", "-m", "baka install " + " ".join(args.install)]]
+        cmds = [["git", "add", "--ignore-errors", path] for path in config.tracked_paths]
+        cmds += [["git", "commit", "-m", "baka pre-install"]]
+        cmds += [config.cmd_install + args.install]
+        cmds += [["git", "commit", "-m", "baka install " + " ".join(args.install)]]
     elif args.remove is not None:
         cmds = [
             config.cmd_remove + args.remove,
@@ -140,10 +136,6 @@ def main() -> int:
             "git", "log", "--abbrev-commit", "--all", "--decorate", "--graph", "--stat",
             "--format=format:%C(bold blue)%h%C(reset) - %C(bold cyan)%aD%C(reset) %C(bold green)(%ar)%C(reset)%C(bold yellow)%d%C(reset)%n%C(bold white)%s%C(reset)%C(dim white) - %an%C(reset)"
         ]]
-    elif args.apply:
-        cmds = [] # TODO
-    elif args.export:
-        cmds = [] # TODO
     # execute commands
     for cmd in cmds:
         if args.dry_run:
