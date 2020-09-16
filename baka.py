@@ -27,12 +27,8 @@ def init_parser() -> argparse.ArgumentParser:
     maingrp = parser.add_mutually_exclusive_group()
     maingrp.add_argument("--init", dest="init", action="store_true",
                          help="init git repo in system root")
-    maingrp.add_argument("--add", dest="add", action="store_true",
-                         help="scan for new files to add to repo and commit")
     maingrp.add_argument("--commit", dest="commit", type=str, metavar="msg",
                          help="git add -u and commit your changes to tracked files")
-    maingrp.add_argument("--git", dest="git", nargs=argparse.REMAINDER,
-                         help="wrapper to run git command with args")
     maingrp.add_argument("--install", dest="install", nargs=argparse.REMAINDER,
                          help="install package(s) and commit changes")
     maingrp.add_argument("--remove", dest="remove", nargs=argparse.REMAINDER, type=list, default=None,
@@ -45,6 +41,8 @@ def init_parser() -> argparse.ArgumentParser:
                          help="show git diff --stat")
     maingrp.add_argument("--log", dest="log", action="store_true",
                          help="show pretty git log")
+    maingrp.add_argument("--git", dest="git", nargs=argparse.REMAINDER,
+                         help="wrapper to run git command with args")
     parser.add_argument("-n", "--dry-run", dest="dry_run", action="store_true",
                         help="print system commands instead of executing them")
     return parser
@@ -98,22 +96,21 @@ def main() -> int:
             ["git", "config", "core.worktree", "/"],
             ["git", "config", "user.name", "baka admin"],
             ["git", "config", "user.email", "baka@" + os.uname().nodename],
-            ["bash", "-c", "echo '*~\n*.dpkg-new\n*.dpkg-old\n' | cat > .gitignore"]
+            ["bash", "-c", "echo '*~\n*.dpkg-new\n*.dpkg-old\n' | cat > .gitignore"],
+            ["echo Adding files to repository..."]
         ]
-    elif args.add:
-        cmds = [["git", "add", "--ignore-errors", path] for path in config.tracked_paths]
-        cmds += [["git", "commit", "-m", "baka add"]]
+        cmds += [["git", "add", "--ignore-errors", path] for path in config.tracked_paths]
+        cmds += [["git", "commit", "-m", "baka initial commit"]]
     elif args.commit:
         cmds = [
             ["git", "add", "-u"],
             ["git", "commit", "-m", "baka commit " + args.commit]
         ]
-    elif args.git:
-        cmds = [["git"] + args.git]
     elif args.install:
         cmds = [["git", "add", "--ignore-errors", path] for path in config.tracked_paths]
         cmds += [["git", "commit", "-m", "baka pre-install"]]
         cmds += [config.cmd_install + args.install]
+        cmds += [["git", "add", "--ignore-errors", path] for path in config.tracked_paths]
         cmds += [["git", "commit", "-m", "baka install " + " ".join(args.install)]]
     elif args.remove is not None:
         cmds = [
@@ -136,6 +133,8 @@ def main() -> int:
             "git", "log", "--abbrev-commit", "--all", "--decorate", "--graph", "--stat",
             "--format=format:%C(bold blue)%h%C(reset) - %C(bold cyan)%aD%C(reset) %C(bold green)(%ar)%C(reset)%C(bold yellow)%d%C(reset)%n%C(bold white)%s%C(reset)%C(dim white) - %an%C(reset)"
         ]]
+    elif args.git:
+        cmds = [["git"] + args.git]
     # execute commands
     for cmd in cmds:
         if args.dry_run:
