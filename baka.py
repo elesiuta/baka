@@ -116,12 +116,16 @@ def main() -> int:
         cmds += [["git", "commit", "-m", "baka install " + " ".join(args.install)]]
     elif args.remove is not None:
         cmds = [
+            ["git", "add", "-u"],
+            ["git", "commit", "-m", "baka pre-remove"],
             config.cmd_remove + args.remove,
             ["git", "add", "-u"],
             ["git", "commit", "-m", "baka remove"]
         ]
     elif args.upgrade:
         cmds = [
+            ["git", "add", "-u"],
+            ["git", "commit", "-m", "baka pre-upgrade"],
             config.cmd_upgrade,
             ["git", "add", "-u"],
             ["git", "commit", "-m", "baka upgrade"]
