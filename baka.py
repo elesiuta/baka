@@ -26,7 +26,7 @@ def init_parser() -> argparse.ArgumentParser:
                                      usage="%(prog)s [--dry-run] <argument>")
     maingrp = parser.add_mutually_exclusive_group()
     maingrp.add_argument("--init", dest="init", action="store_true",
-                         help="init git repo, open config, add files then commit")
+                         help="open config, init git repo, add files then commit")
     maingrp.add_argument("--commit", dest="commit", type=str, metavar="msg",
                          help="git add -u and commit your changes to tracked files")
     maingrp.add_argument("--install", dest="install", nargs=argparse.REMAINDER,
@@ -91,14 +91,20 @@ def main() -> int:
     os.chdir(os.path.expanduser("~/.baka"))
     # select commands
     if args.init:
+        # option to edit then reload config
+        _ = input("Press enter to open your config file with nano")
+        if args.dry_run:
+            print(shlex.join(["nano", os.path.expanduser("~/.baka/config.json")]))
+        else:
+            subprocess.run(["nano", os.path.expanduser("~/.baka/config.json")])
+        config = Config()
+        # git commands
         cmds = [
             ["git", "init"],
             ["git", "config", "core.worktree", "/"],
             ["git", "config", "user.name", "baka admin"],
             ["git", "config", "user.email", "baka@" + os.uname().nodename],
             ["bash", "-c", "echo '*~\n*.dpkg-new\n*.dpkg-old\n' | cat > .gitignore"],
-            ["bash", "-c", "read -p 'Press enter to open your config file with nano'"],
-            ["nano", os.path.expanduser("~/.baka/config.json")],
             ["bash", "-c", "read -p 'Press enter to add files to repository'"]
         ]
         cmds += [["git", "add", "--ignore-errors", path] for path in config.tracked_paths]

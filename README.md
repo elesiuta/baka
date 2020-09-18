@@ -10,7 +10,7 @@ Baka Admin's Kludge Assistant
 
 optional arguments:
   -h, --help     show this help message and exit
-  --init         init git repo, open config, add files then commit
+  --init         open config, init git repo, add files then commit
   --commit msg   git add -u and commit your changes to tracked files
   --install ...  install package(s) and commit changes
   --remove ...   remove package(s) and commit changes
