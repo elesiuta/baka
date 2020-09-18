@@ -1,5 +1,8 @@
 # baka
 the stupid configuration tracker using the stupid content tracker  
+```
+pip install bakabakabaka
+```
   
 I made this to help with tracking changes I make to my home server  
 This is literally just a wrapper for some git commands, if you're looking for something similar but with more features, see etckeeper  
