@@ -31,7 +31,7 @@ def init_parser() -> argparse.ArgumentParser:
                          help="git add -u and commit your changes to tracked files")
     maingrp.add_argument("--install", dest="install", nargs=argparse.REMAINDER,
                          help="install package(s) and commit changes")
-    maingrp.add_argument("--remove", dest="remove", nargs=argparse.REMAINDER, type=list, default=None,
+    maingrp.add_argument("--remove", dest="remove", nargs=argparse.REMAINDER, default=None,
                          help="remove package(s) and commit changes")
     maingrp.add_argument("--upgrade", dest="upgrade", action="store_true",
                          help="upgrade packages on system and commit changes")
