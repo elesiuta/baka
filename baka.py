@@ -19,6 +19,7 @@ import os
 import shlex
 import subprocess
 import sys
+import time
 
 
 def init_parser() -> argparse.ArgumentParser:
@@ -112,7 +113,7 @@ def main() -> int:
             ["git", "init"],
             ["git", "config", "user.name", "baka admin"],
             ["git", "config", "user.email", "baka@" + os.uname().nodename],
-            ["bash", "-c", "echo '*~\n*.dpkg-new\n*.dpkg-old\n' | cat > .gitignore"],
+            ["bash", "-c", "echo 'history.log\n*~\n*.dpkg-new\n*.dpkg-old\n' | cat > .gitignore"],
             ["bash", "-c", "read -p 'Press enter to add files to repository'"],
             *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka initial commit"]
@@ -162,7 +163,21 @@ def main() -> int:
         if args.dry_run:
             print(shlex.join(cmd))
         else:
-            subprocess.run(cmd)
+            # hide permission errors for rsync, otherwise run command normally
+            if cmd[0] == "rsync":
+                proc = subprocess.run(cmd, stderr=subprocess.PIPE, universal_newlines=True)
+                for line in proc.stderr.splitlines():
+                    if "Permission denied (13)" not in line and "(see previous errors) (code 23)" not in line:
+                        print(line)
+            else:
+                subprocess.run(cmd)
+    # write log
+    log_entry = time.ctime()
+    for key in vars(args):
+        if vars(args)[key]:
+            log_entry += " " + key + " " + str(vars(args)[key])
+    with open(os.path.expanduser("~/.baka/history.log"), "a", encoding="utf-8", errors="surrogateescape") as log_file:
+        log_file.write(log_entry + "\n")
     return 0
 
 
