@@ -5,7 +5,7 @@ pip install bakabakabaka
 ```
   
 I made this to help with tracking changes I make to my home server  
-This is literally just a wrapper for some git commands, if you're looking for something similar but with more features, see etckeeper  
+This is literally just a wrapper for some rsync and git commands, if you're looking for something similar but with more features, see etckeeper  
 ```
 usage: baka [--dry-run] <argument>
 
@@ -19,8 +19,8 @@ optional arguments:
   --remove ...   remove package(s) and commit changes
   --upgrade      upgrade packages on system and commit changes
   --verify       verify all packages on system
-  --diff         show git diff --stat
+  --diff         show git diff --color-words
   --log          show pretty git log
-  --git ...      wrapper to run git command with args
+  --show         show most recent commit
   -n, --dry-run  print system commands instead of executing them
 ```

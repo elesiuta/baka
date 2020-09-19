@@ -113,7 +113,16 @@ def main() -> int:
             ["git", "init"],
             ["git", "config", "user.name", "baka admin"],
             ["git", "config", "user.email", "baka@" + os.uname().nodename],
-            ["bash", "-c", "echo 'history.log\n*~\n*.dpkg-new\n*.dpkg-old\n' | cat > .gitignore"],
+            ["bash", "-c", "echo '" \
+                "history.log\n" \
+                "*~\n" \
+                "*-old\n" \
+                "*.cache\n" \
+                "*.dpkg-bak\n" \
+                "*.dpkg-dist\n" \
+                "*.dpkg-new\n" \
+                "*.dpkg-old\n" \
+            "' | cat > .gitignore"],
             ["bash", "-c", "read -p 'Press enter to add files to repository'"],
             *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka initial commit"]
