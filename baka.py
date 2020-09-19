@@ -39,11 +39,11 @@ def init_parser() -> argparse.ArgumentParser:
     maingrp.add_argument("--verify", dest="verify", action="store_true",
                          help="verify all packages on system")
     maingrp.add_argument("--diff", dest="diff", action="store_true",
-                         help="show git diff --stat")
+                         help="show git diff --color-words")
     maingrp.add_argument("--log", dest="log", action="store_true",
                          help="show pretty git log")
-    maingrp.add_argument("--git", dest="git", nargs=argparse.REMAINDER,
-                         help="wrapper to run git command with args")
+    maingrp.add_argument("--show", dest="show", action="store_true",
+                         help="show most recent commit")
     parser.add_argument("-n", "--dry-run", dest="dry_run", action="store_true",
                         help="print system commands instead of executing them")
     return parser
@@ -150,14 +150,14 @@ def main() -> int:
     elif args.verify:
         cmds = [config.cmd_verify_packages]
     elif args.diff:
-        cmds = [["git", "diff", "--stat"]]
+        cmds = [["git", "diff", "--color-words"]]
     elif args.log:
         cmds = [[
             "git", "log", "--abbrev-commit", "--all", "--decorate", "--graph", "--stat",
             "--format=format:%C(bold blue)%h%C(reset) - %C(bold cyan)%aD%C(reset) %C(bold green)(%ar)%C(reset)%C(bold yellow)%d%C(reset)%n%C(bold white)%s%C(reset)%C(dim white) - %an%C(reset)"
         ]]
-    elif args.git:
-        cmds = [["git"] + args.git]
+    elif args.show:
+        cmds = [["git", "show", "--color-words"]]
     # execute commands
     for cmd in cmds:
         if args.dry_run:
@@ -172,12 +172,13 @@ def main() -> int:
             else:
                 subprocess.run(cmd)
     # write log
-    log_entry = time.ctime()
-    for key in vars(args):
-        if vars(args)[key]:
-            log_entry += " " + key + " " + str(vars(args)[key])
-    with open(os.path.expanduser("~/.baka/history.log"), "a", encoding="utf-8", errors="surrogateescape") as log_file:
-        log_file.write(log_entry + "\n")
+    if not (args.dry_run or args.verify or args.diff or args.log or args.show):
+        log_entry = time.ctime()
+        for key in vars(args):
+            if vars(args)[key]:
+                log_entry += " " + key + " " + str(vars(args)[key])
+        with open(os.path.expanduser("~/.baka/history.log"), "a", encoding="utf-8", errors="surrogateescape") as log_file:
+            log_file.write(log_entry + "\n")
     return 0
 
 
