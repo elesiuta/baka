@@ -62,9 +62,9 @@ class Config:
         self.cmd_upgrade = ["bash", "-c", "sudo apt update && sudo apt upgrade"]
         self.cmd_verify_packages = ["sudo", "debsums", "-ac"]
         self.tracked_paths = [
-            "/etc/",
-            os.path.expanduser("~/.config/"),
-            os.path.expanduser("~/.local/share/")
+            "/etc",
+            os.path.expanduser("~/.config"),
+            os.path.expanduser("~/.local/share")
         ]
         # load config
         for key in config:
@@ -82,7 +82,10 @@ class Config:
 
 
 def rsync_and_git_add_all(config: "Config") -> list:
-    cmds = [["rsync", "-rlpt", path, os.path.join(os.path.expanduser("~/.baka"), path)] for path in config.tracked_paths]
+    for path in config.tracked_paths:
+        if not os.path.exists(os.path.dirname(os.path.expanduser("~/.baka") + path)):
+            os.makedirs(os.path.dirname(os.path.expanduser("~/.baka") + path))
+    cmds = [["rsync", "-rlpt", path, os.path.dirname(os.path.expanduser("~/.baka") + path)] for path in config.tracked_paths]
     cmds += [["git", "add", "--ignore-errors", "--all"]]
     return cmds
 
@@ -123,7 +126,7 @@ def main() -> int:
         cmds = [
             *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka pre-install"],
-            [config.cmd_install + args.install],
+            config.cmd_install + args.install,
             *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka install " + " ".join(args.install)]
         ]
@@ -131,7 +134,7 @@ def main() -> int:
         cmds = [
             *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka pre-remove"],
-            [config.cmd_remove + args.remove],
+            config.cmd_remove + args.remove,
             *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka remove"]
         ]
