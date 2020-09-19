@@ -62,9 +62,9 @@ class Config:
         self.cmd_upgrade = ["bash", "-c", "sudo apt update && sudo apt upgrade"]
         self.cmd_verify_packages = ["sudo", "debsums", "-ac"]
         self.tracked_paths = [
-            "/etc/.",
-            os.path.expanduser("~/.config/."),
-            os.path.expanduser("~/.local/share/.")
+            "/etc/",
+            os.path.expanduser("~/.config/"),
+            os.path.expanduser("~/.local/share/")
         ]
         # load config
         for key in config:
@@ -79,6 +79,12 @@ class Config:
                     json.dump(vars(self), json_file, indent=2, separators=(',', ': '), sort_keys=True, ensure_ascii=False)
             except Exception:
                 print("Error: Could not write config file to " + config_path)
+
+
+def rsync_and_git_add_all(config: "Config") -> list:
+    cmds = [["rsync", "-rlpt", path, os.path.join(os.path.expanduser("~/.baka"), path)] for path in config.tracked_paths]
+    cmds += [["git", "add", "--ignore-errors", "--all"]]
+    return cmds
 
 
 def main() -> int:
@@ -101,39 +107,40 @@ def main() -> int:
         # git commands
         cmds = [
             ["git", "init"],
-            ["git", "config", "core.worktree", "/"],
             ["git", "config", "user.name", "baka admin"],
             ["git", "config", "user.email", "baka@" + os.uname().nodename],
             ["bash", "-c", "echo '*~\n*.dpkg-new\n*.dpkg-old\n' | cat > .gitignore"],
-            ["bash", "-c", "read -p 'Press enter to add files to repository'"]
+            ["bash", "-c", "read -p 'Press enter to add files to repository'"],
+            *rsync_and_git_add_all(config),
+            ["git", "commit", "-m", "baka initial commit"]
         ]
-        cmds += [["git", "add", "--ignore-errors", path] for path in config.tracked_paths]
-        cmds += [["git", "commit", "-m", "baka initial commit"]]
     elif args.commit:
         cmds = [
-            ["git", "add", "-u"],
+            *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka commit " + args.commit]
         ]
     elif args.install:
-        cmds = [["git", "add", "--ignore-errors", path] for path in config.tracked_paths]
-        cmds += [["git", "commit", "-m", "baka pre-install"]]
-        cmds += [config.cmd_install + args.install]
-        cmds += [["git", "add", "--ignore-errors", path] for path in config.tracked_paths]
-        cmds += [["git", "commit", "-m", "baka install " + " ".join(args.install)]]
+        cmds = [
+            *rsync_and_git_add_all(config),
+            ["git", "commit", "-m", "baka pre-install"],
+            [config.cmd_install + args.install],
+            *rsync_and_git_add_all(config),
+            ["git", "commit", "-m", "baka install " + " ".join(args.install)]
+        ]
     elif args.remove is not None:
         cmds = [
-            ["git", "add", "-u"],
+            *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka pre-remove"],
-            config.cmd_remove + args.remove,
-            ["git", "add", "-u"],
+            [config.cmd_remove + args.remove],
+            *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka remove"]
         ]
     elif args.upgrade:
         cmds = [
-            ["git", "add", "-u"],
+            *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka pre-upgrade"],
             config.cmd_upgrade,
-            ["git", "add", "-u"],
+            *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka upgrade"]
         ]
     elif args.verify:
