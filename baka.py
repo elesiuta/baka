@@ -169,6 +169,7 @@ def main() -> int:
             ["git", "commit", "-m", "baka upgrade"]
         ]
     elif args.status:
+        assert ("history" not in config.status_checks)
         cmds = [
             *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka pre-status"],
