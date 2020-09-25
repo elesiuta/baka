@@ -36,6 +36,8 @@ def init_parser() -> argparse.ArgumentParser:
                          help="remove package(s) and commit changes")
     maingrp.add_argument("--upgrade", dest="upgrade", action="store_true",
                          help="upgrade packages on system and commit changes")
+    maingrp.add_argument("--status", dest="status", action="store_true",
+                         help="track status of various things")
     maingrp.add_argument("--verify", dest="verify", action="store_true",
                          help="verify all packages on system")
     maingrp.add_argument("--diff", dest="diff", action="store_true",
@@ -62,6 +64,12 @@ class Config:
         self.cmd_remove = ["sudo", "apt", "autoremove", "--purge"]
         self.cmd_upgrade = ["bash", "-c", "sudo apt update && sudo apt upgrade"]
         self.cmd_verify_packages = ["sudo", "debsums", "-ac"]
+        self.status_checks = {
+            "ip_rules_v4": "sudo cat /etc/iptables/rules.v4",
+            "ip_rules_v6": "sudo cat /etc/iptables/rules.v6",
+            "SMART-sda": "sudo smartctl -a /dev/sda",
+            "SMART-sdb": "sudo smartctl -a /dev/sdb",
+        }
         self.tracked_paths = [
             "/etc",
             os.path.expanduser("~/.config"),
@@ -122,7 +130,11 @@ def main() -> int:
                 "*.dpkg-dist\n" \
                 "*.dpkg-new\n" \
                 "*.dpkg-old\n" \
-            "' | cat > .gitignore"],
+                "**/fish_history\n" \
+                "**/xonsh-*.json\n" \
+            "' > .gitignore"],
+            ["bash", "-c", "read -p 'Press enter to open .gitignore with nano'"],
+            ["nano", os.path.expanduser("~/.baka/.gitignore")],
             ["bash", "-c", "read -p 'Press enter to add files to repository'"],
             *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka initial commit"]
@@ -156,10 +168,21 @@ def main() -> int:
             *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka upgrade"]
         ]
+    elif args.status:
+        cmds = [
+            *rsync_and_git_add_all(config),
+            ["git", "commit", "-m", "baka pre-status"],
+            *[["bash", "-c", "%s > %s.log" %(config.status_checks[key], key)] for key in config.status_checks],
+            ["git", "add", "--ignore-errors", "--all"],
+            ["git", "commit", "-m", "baka status"]
+        ]
     elif args.verify:
         cmds = [config.cmd_verify_packages]
     elif args.diff:
-        cmds = [["git", "diff", "--color-words"]]
+        cmds = [
+            *rsync_and_git_add_all(config)[:-1],
+            ["git", "diff", "--color-words"]
+        ]
     elif args.log:
         cmds = [[
             "git", "log", "--abbrev-commit", "--all", "--decorate", "--graph", "--stat",
