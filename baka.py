@@ -121,17 +121,17 @@ def main() -> int:
             ["git", "init"],
             ["git", "config", "user.name", "baka admin"],
             ["git", "config", "user.email", "baka@" + os.uname().nodename],
-            ["bash", "-c", "echo '" \
-                "history.log\n" \
-                "*~\n" \
-                "*-old\n" \
-                "*.cache\n" \
-                "*.dpkg-bak\n" \
-                "*.dpkg-dist\n" \
-                "*.dpkg-new\n" \
-                "*.dpkg-old\n" \
-                "**/fish_history\n" \
-                "**/xonsh-*.json\n" \
+            ["bash", "-c", "echo '"
+                "history.log\n"
+                "*~\n"
+                "*-old\n"
+                "*.cache\n"
+                "*.dpkg-bak\n"
+                "*.dpkg-dist\n"
+                "*.dpkg-new\n"
+                "*.dpkg-old\n"
+                "**/fish_history\n"
+                "**/xonsh-*.json\n"
             "' > .gitignore"],
             ["bash", "-c", "read -p 'Press enter to open .gitignore with nano'"],
             ["nano", os.path.expanduser("~/.baka/.gitignore")],
@@ -173,7 +173,7 @@ def main() -> int:
         cmds = [
             *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka pre-status"],
-            *[["bash", "-c", "%s > %s.log" %(config.status_checks[key], key)] for key in config.status_checks],
+            *[["bash", "-c", "%s > %s.log" % (config.status_checks[key], key)] for key in config.status_checks],
             ["git", "add", "--ignore-errors", "--all"],
             ["git", "commit", "-m", "baka status"]
         ]
