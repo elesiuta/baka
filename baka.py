@@ -181,8 +181,9 @@ def main() -> int:
         cmds = [config.cmd_verify_packages]
     elif args.diff:
         cmds = [
-            *rsync_and_git_add_all(config)[:-1],
-            ["git", "diff", "--color-words"]
+            *rsync_and_git_add_all(config),
+            ["git", "status", "-s"],
+            ["git", "diff", "--color-words", "--cached", "--minimal"]
         ]
     elif args.log:
         cmds = [[
