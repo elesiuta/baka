@@ -37,9 +37,9 @@ def init_parser() -> argparse.ArgumentParser:
     maingrp.add_argument("--upgrade", dest="upgrade", action="store_true",
                          help="upgrade packages on system and commit changes")
     maingrp.add_argument("--status", dest="status", action="store_true",
-                         help="track status of various things")
+                         help="run commands to track status of various things")
     maingrp.add_argument("--verify", dest="verify", action="store_true",
-                         help="verify all packages on system")
+                         help="run commands to verify system integrity")
     maingrp.add_argument("--diff", dest="diff", action="store_true",
                          help="show git diff --color-words")
     maingrp.add_argument("--log", dest="log", action="store_true",
@@ -63,12 +63,14 @@ class Config:
         self.cmd_install = ["sudo", "apt", "install"]
         self.cmd_remove = ["sudo", "apt", "autoremove", "--purge"]
         self.cmd_upgrade = ["bash", "-c", "sudo apt update && sudo apt upgrade"]
-        self.cmd_verify_packages = ["sudo", "debsums", "-ac"]
         self.status_checks = {
             "ip_rules_v4": "sudo cat /etc/iptables/rules.v4",
             "ip_rules_v6": "sudo cat /etc/iptables/rules.v6",
             "SMART-sda": "sudo smartctl -a /dev/sda",
             "SMART-sdb": "sudo smartctl -a /dev/sdb",
+        }
+        self.system_integrity = {
+            "debsums": "sudo debsums -ac"
         }
         self.tracked_paths = [
             "/etc",
@@ -170,6 +172,7 @@ def main() -> int:
         ]
     elif args.status:
         assert ("history" not in config.status_checks)
+        assert all([key not in config.system_integrity for key in config.status_checks])
         cmds = [
             *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka pre-status"],
@@ -178,7 +181,15 @@ def main() -> int:
             ["git", "commit", "-m", "baka status"]
         ]
     elif args.verify:
-        cmds = [config.cmd_verify_packages]
+        assert ("history" not in config.system_integrity)
+        assert all([key not in config.status_checks for key in config.system_integrity])
+        cmds = [
+            *rsync_and_git_add_all(config),
+            ["git", "commit", "-m", "baka pre-verify"],
+            *[["bash", "-c", "%s | tee %s.log" % (config.system_integrity[key], key)] for key in config.system_integrity],
+            ["git", "add", "--ignore-errors", "--all"],
+            ["git", "commit", "-m", "baka verify"]
+        ]
     elif args.diff:
         cmds = [
             *rsync_and_git_add_all(config),
@@ -206,7 +217,7 @@ def main() -> int:
             else:
                 subprocess.run(cmd)
     # write log
-    if not (args.dry_run or args.verify or args.diff or args.log or args.show):
+    if not (args.dry_run or args.diff or args.log or args.show):
         log_entry = time.ctime()
         for key in vars(args):
             if vars(args)[key]:

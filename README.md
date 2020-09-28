@@ -18,8 +18,8 @@ optional arguments:
   --install ...  install package(s) and commit changes
   --remove ...   remove package(s) and commit changes
   --upgrade      upgrade packages on system and commit changes
-  --status       track status of various things
-  --verify       verify all packages on system
+  --status       run commands to track status of various things
+  --verify       run commands to verify system integrity
   --diff         show git diff --color-words
   --log          show pretty git log
   --show         show most recent commit
