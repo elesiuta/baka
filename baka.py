@@ -96,7 +96,7 @@ def rsync_and_git_add_all(config: "Config") -> list:
     for path in config.tracked_paths:
         if not os.path.exists(os.path.dirname(os.path.expanduser("~/.baka") + path)):
             os.makedirs(os.path.dirname(os.path.expanduser("~/.baka") + path))
-    cmds = [["rsync", "-rlpt", path, os.path.dirname(os.path.expanduser("~/.baka") + path)] for path in config.tracked_paths]
+    cmds = [["rsync", "-rlpt", "--delete", path, os.path.dirname(os.path.expanduser("~/.baka") + path)] for path in config.tracked_paths]
     cmds += [["git", "add", "--ignore-errors", "--all"]]
     return cmds
 
