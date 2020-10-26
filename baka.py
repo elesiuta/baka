@@ -135,7 +135,7 @@ def send_email(config_email: dict, job_email: dict, body: str) -> int:
         message["Cc"] = config_email["cc"]
     message["Subject"] = job_email["subject"]
     message.set_content(body)
-    with smtplib.SMTP(config_email["smtp_server"], config_email["smtp_port"]) as smtp_server_instance:
+    with smtplib.SMTP(config_email["smtp_server"], int(config_email["smtp_port"])) as smtp_server_instance:
         smtp_server_instance.ehlo()
         smtp_server_instance.starttls()
         smtp_server_instance.login(config_email["smtp_username"], config_email["smtp_password"])
@@ -284,6 +284,7 @@ def main() -> int:
             send_email(config.email, config.jobs[args.job]["email"], command_output)
         if "write" in config.jobs[args.job] and config.jobs[args.job]["write"]:
             file_path = os.path.abspath(datetime.datetime.now().strftime(config.jobs[args.job]["write"]))
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
             with open(file_path, "w", encoding="utf-8", errors="backslashreplace") as f:
                 f.write(command_output)
     return 0
