@@ -83,10 +83,10 @@ class Config:
                     ["echo", "task completed"]
                 ],
                 "email": {
-                    "to": "email@domain.com or None",
-                    "subject": "example subjext"
+                    "to": "email@domain.com or null",
+                    "subject": "example subject"
                 },
-                "write": "/abs/file/path/name.txt (with strftime format codes) or None"
+                "write": "/abs/file/path/name.txt (with strftime format codes) or null"
             }
         }
         self.status_checks = {
@@ -131,7 +131,7 @@ def send_email(config_email: dict, job_email: dict, body: str) -> int:
     message = email.message.EmailMessage()
     message["From"] = config_email["from"]
     message["To"] = job_email["to"]
-    if config_email["cc"] is not None:
+    if config_email["cc"]:
         message["Cc"] = config_email["cc"]
     message["Subject"] = job_email["subject"]
     message.set_content(body)
