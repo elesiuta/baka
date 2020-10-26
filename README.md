@@ -18,6 +18,7 @@ optional arguments:
   --install ...  install package(s) and commit changes
   --remove ...   remove package(s) and commit changes
   --upgrade      upgrade packages on system and commit changes
+  --job name     run commands for job with name
   --status       run commands to track status of various things
   --verify       run commands to verify system integrity
   --diff         show git diff --color-words
