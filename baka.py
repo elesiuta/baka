@@ -260,15 +260,16 @@ def main() -> int:
                 # capture command output, otherwise run command normally
                 proc = subprocess.run(cmd, capture_output=True, universal_newlines=True)
                 command_output.append(shlex.join(cmd))
-                command_output.append(proc.stdout)
-                command_output.append(proc.stderr)
+                command_output.append(proc.stdout.strip())
+                command_output.append(proc.stderr.strip())
+                command_output.append("")
                 if "verbosity" in config.jobs[args.job] and config.jobs[args.job]["verbosity"]:
                     if config.jobs[args.job]["verbosity"].lower() in ["debug"]:
-                        print(shlex.join(cmd))
+                        print("\033[94m%s\033[0m" % shlex.join(cmd))
                     if config.jobs[args.job]["verbosity"].lower() in ["debug", "info"]:
-                        print(proc.stdout)
+                        print(proc.stdout.strip())
                     if config.jobs[args.job]["verbosity"].lower() in ["debug", "info", "error"]:
-                        print(proc.stderr)
+                        print(proc.stderr.strip(), end="\n\n")
             elif cmd[0] == "rsync":
                 # hide permission errors for rsync, otherwise run command normally
                 proc = subprocess.run(cmd, stderr=subprocess.PIPE, universal_newlines=True)
