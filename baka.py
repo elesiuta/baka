@@ -86,7 +86,8 @@ class Config:
                     "to": "email@domain.com or null",
                     "subject": "example subject"
                 },
-                "write": "/abs/file/path/name.txt (with strftime format codes) or null"
+                "verbosity": "one of: debug, info, error, silent (default if null)",
+                "write": "./jobs/example job %Y-%m-%d %H:%M.log (supports strftime format codes) or null"
             }
         }
         self.status_checks = {
@@ -258,8 +259,16 @@ def main() -> int:
             if args.job:
                 # capture command output, otherwise run command normally
                 proc = subprocess.run(cmd, capture_output=True, universal_newlines=True)
+                command_output.append(shlex.join(cmd))
                 command_output.append(proc.stdout)
                 command_output.append(proc.stderr)
+                if "verbosity" in config.jobs[args.job] and config.jobs[args.job]["verbosity"]:
+                    if config.jobs[args.job]["verbosity"].lower() in ["debug"]:
+                        print(shlex.join(cmd))
+                    if config.jobs[args.job]["verbosity"].lower() in ["debug", "info"]:
+                        print(proc.stdout)
+                    if config.jobs[args.job]["verbosity"].lower() in ["debug", "info", "error"]:
+                        print(proc.stderr)
             elif cmd[0] == "rsync":
                 # hide permission errors for rsync, otherwise run command normally
                 proc = subprocess.run(cmd, stderr=subprocess.PIPE, universal_newlines=True)
@@ -279,7 +288,7 @@ def main() -> int:
             log_file.write(log_entry + "\n")
     # email or write command output
     if args.job:
-        command_output = "\n\n".join(command_output)
+        command_output = "\n".join(command_output)
         if "email" in config.jobs[args.job] and config.jobs[args.job]["email"] and config.jobs[args.job]["email"]["to"]:
             send_email(config.email, config.jobs[args.job]["email"], command_output)
         if "write" in config.jobs[args.job] and config.jobs[args.job]["write"]:
