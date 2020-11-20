@@ -262,7 +262,7 @@ def main() -> int:
                 command_output.append(shlex.join(cmd))
                 command_output.append(proc.stdout.strip())
                 command_output.append(proc.stderr.strip())
-                command_output.append("")
+                command_output.append("\n")
                 if "verbosity" in config.jobs[args.job] and config.jobs[args.job]["verbosity"]:
                     if config.jobs[args.job]["verbosity"].lower() in ["debug"]:
                         print("\033[94m%s\033[0m" % shlex.join(cmd))
