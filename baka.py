@@ -86,6 +86,7 @@ class Config:
                     "to": "email@domain.com or null",
                     "subject": "example subject"
                 },
+                "encoding": "one of: bytes, text, universal_newlines (default if null)",
                 "verbosity": "one of: debug, info, error, silent (default if null)",
                 "write": "./jobs/example job %Y-%m-%d %H:%M.log (supports strftime format codes) or null"
             }
@@ -257,24 +258,45 @@ def main() -> int:
             command_output.append(shlex.join(cmd))
         else:
             if args.job:
-                # capture command output, otherwise run command normally
-                proc = subprocess.run(cmd, capture_output=True, universal_newlines=True)
+                # capture command output for job, otherwise run command normally
+                encoding = None
+                if "encoding" in config.jobs[args.job] and config.jobs[args.job]["encoding"]:
+                    if config.jobs[args.job]["encoding"].lower() == "bytes":
+                        encoding = True
+                        proc = subprocess.run(cmd, capture_output=True)
+                    elif config.jobs[args.job]["encoding"].lower() == "text":
+                        proc = subprocess.run(cmd, capture_output=True, text=True)
+                    else:
+                        proc = subprocess.run(cmd, capture_output=True, universal_newlines=True)
+                else:
+                    proc = subprocess.run(cmd, capture_output=True, universal_newlines=True)
                 command_output.append(shlex.join(cmd))
-                command_output.append(proc.stdout.strip())
-                command_output.append(proc.stderr.strip())
+                if encoding is None:
+                    command_output.append(proc.stdout.strip())
+                    command_output.append(proc.stderr.strip())
+                else:
+                    command_output.append(proc.stdout.decode().strip())
+                    command_output.append(proc.stderr.decode().strip())
                 command_output.append("\n")
                 if "verbosity" in config.jobs[args.job] and config.jobs[args.job]["verbosity"]:
                     if config.jobs[args.job]["verbosity"].lower() in ["debug"]:
                         print("\033[94m%s\033[0m" % shlex.join(cmd))
                     if config.jobs[args.job]["verbosity"].lower() in ["debug", "info"]:
-                        print(proc.stdout.strip())
+                        if encoding is None:
+                            print(proc.stdout.strip())
+                        else:
+                            sys.stdout.buffer.write(proc.stdout)
                     if config.jobs[args.job]["verbosity"].lower() in ["debug", "info", "error"]:
-                        print(proc.stderr.strip(), end="\n\n")
+                        if encoding is None:
+                            print(proc.stderr.strip(), end="\n\n")
+                        else:
+                            sys.stdout.buffer.write(proc.stderr)
+                            print("\n")
             elif cmd[0] == "rsync":
                 # hide permission errors for rsync, otherwise run command normally
                 proc = subprocess.run(cmd, stderr=subprocess.PIPE, universal_newlines=True)
                 for line in proc.stderr.splitlines():
-                    if "Permission denied (13)" not in line and "(see previous errors) (code 23)" not in line:
+                    if line and "Permission denied (13)" not in line and "(see previous errors) (code 23)" not in line:
                         print(line)
             else:
                 # run command normally
