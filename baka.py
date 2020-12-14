@@ -204,7 +204,7 @@ def main() -> int:
             ["git", "commit", "-m", "baka pre-remove"],
             config.cmd_remove + args.remove,
             *rsync_and_git_add_all(config),
-            ["git", "commit", "-m", "baka remove"]
+            ["git", "commit", "-m", "baka remove " + " ".join(args.remove)]
         ]
     elif args.upgrade:
         cmds = [
@@ -222,7 +222,8 @@ def main() -> int:
         cmds = [
             *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka pre-status"],
-            *[["bash", "-c", "%s > %s.log" % (config.status_checks[key], key)] for key in config.status_checks],
+            ["mkdir", "-p", "status"],
+            *[["bash", "-c", "%s > status/%s.log" % (config.status_checks[key], key)] for key in config.status_checks],
             ["git", "add", "--ignore-errors", "--all"],
             ["git", "commit", "-m", "baka status"]
         ]
@@ -232,7 +233,8 @@ def main() -> int:
         cmds = [
             *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka pre-verify"],
-            *[["bash", "-c", "%s | tee %s.log" % (config.system_integrity[key], key)] for key in config.system_integrity],
+            ["mkdir", "-p", "verify"],
+            *[["bash", "-c", "%s | tee verify/%s.log" % (config.system_integrity[key], key)] for key in config.system_integrity],
             ["git", "add", "--ignore-errors", "--all"],
             ["git", "commit", "-m", "baka verify"]
         ]
@@ -251,62 +253,70 @@ def main() -> int:
         cmds = [["git", "show", "--color-words"]]
     # execute commands
     command_output = []
-    for cmd in cmds:
-        if args.dry_run:
-            print(shlex.join(cmd))
-            command_output.append("dry-run")
-            command_output.append(shlex.join(cmd))
-        else:
-            if args.job:
-                # capture command output for job, otherwise run command normally
-                encoding = None
-                if "encoding" in config.jobs[args.job] and config.jobs[args.job]["encoding"]:
-                    if config.jobs[args.job]["encoding"].lower() == "bytes":
-                        encoding = True
-                        proc = subprocess.run(cmd, capture_output=True)
-                    elif config.jobs[args.job]["encoding"].lower() == "text":
-                        proc = subprocess.run(cmd, capture_output=True, text=True)
+    error_message = ""
+    try:
+        for cmd in cmds:
+            if args.dry_run:
+                print(shlex.join(cmd))
+                command_output.append("dry-run")
+                command_output.append(shlex.join(cmd))
+            else:
+                if args.job:
+                    # capture command output for job, otherwise run command normally
+                    encoding = None
+                    if "encoding" in config.jobs[args.job] and config.jobs[args.job]["encoding"]:
+                        if config.jobs[args.job]["encoding"].lower() == "bytes":
+                            encoding = True
+                            proc = subprocess.run(cmd, capture_output=True)
+                        elif config.jobs[args.job]["encoding"].lower() == "text":
+                            proc = subprocess.run(cmd, capture_output=True, text=True)
+                        else:
+                            proc = subprocess.run(cmd, capture_output=True, universal_newlines=True)
                     else:
                         proc = subprocess.run(cmd, capture_output=True, universal_newlines=True)
+                    command_output.append(shlex.join(cmd))
+                    if encoding is None:
+                        command_output.append(proc.stdout.strip())
+                        command_output.append(proc.stderr.strip())
+                    else:
+                        command_output.append(proc.stdout.decode().strip())
+                        command_output.append(proc.stderr.decode().strip())
+                    command_output.append("\n")
+                    if "verbosity" in config.jobs[args.job] and config.jobs[args.job]["verbosity"]:
+                        if config.jobs[args.job]["verbosity"].lower() in ["debug"]:
+                            print("\033[94m%s\033[0m" % shlex.join(cmd))
+                        if config.jobs[args.job]["verbosity"].lower() in ["debug", "info"]:
+                            if encoding is None:
+                                print(proc.stdout.strip())
+                            else:
+                                sys.stdout.buffer.write(proc.stdout)
+                        if config.jobs[args.job]["verbosity"].lower() in ["debug", "info", "error"]:
+                            if encoding is None:
+                                print(proc.stderr.strip(), end="\n\n")
+                            else:
+                                sys.stdout.buffer.write(proc.stderr)
+                                print("\n")
+                elif cmd[0] == "rsync":
+                    # hide permission errors for rsync, otherwise run command normally
+                    proc = subprocess.run(cmd, stderr=subprocess.PIPE, universal_newlines=True)
+                    for line in proc.stderr.splitlines():
+                        if line and "Permission denied (13)" not in line and "(see previous errors) (code 23)" not in line:
+                            print(line)
                 else:
-                    proc = subprocess.run(cmd, capture_output=True, universal_newlines=True)
-                command_output.append(shlex.join(cmd))
-                if encoding is None:
-                    command_output.append(proc.stdout.strip())
-                    command_output.append(proc.stderr.strip())
-                else:
-                    command_output.append(proc.stdout.decode().strip())
-                    command_output.append(proc.stderr.decode().strip())
-                command_output.append("\n")
-                if "verbosity" in config.jobs[args.job] and config.jobs[args.job]["verbosity"]:
-                    if config.jobs[args.job]["verbosity"].lower() in ["debug"]:
-                        print("\033[94m%s\033[0m" % shlex.join(cmd))
-                    if config.jobs[args.job]["verbosity"].lower() in ["debug", "info"]:
-                        if encoding is None:
-                            print(proc.stdout.strip())
-                        else:
-                            sys.stdout.buffer.write(proc.stdout)
-                    if config.jobs[args.job]["verbosity"].lower() in ["debug", "info", "error"]:
-                        if encoding is None:
-                            print(proc.stderr.strip(), end="\n\n")
-                        else:
-                            sys.stdout.buffer.write(proc.stderr)
-                            print("\n")
-            elif cmd[0] == "rsync":
-                # hide permission errors for rsync, otherwise run command normally
-                proc = subprocess.run(cmd, stderr=subprocess.PIPE, universal_newlines=True)
-                for line in proc.stderr.splitlines():
-                    if line and "Permission denied (13)" not in line and "(see previous errors) (code 23)" not in line:
-                        print(line)
-            else:
-                # run command normally
-                subprocess.run(cmd)
+                    # run command normally
+                    subprocess.run(cmd)
+    except Exception as e:
+        error_message = "Error baka line: %s For: %s %s %s" % (sys.exc_info()[2].tb_lineno, shlex.join(cmd), type(e).__name__, e.args)
+        command_output.append(error_message)
+        print(error_message, file=sys.stderr)
     # write log
     if not (args.dry_run or args.diff or args.log or args.show):
         log_entry = time.ctime()
         for key in vars(args):
-            if vars(args)[key]:
+            if vars(args)[key] or (key == "remove" and args.remove is not None):
                 log_entry += " " + key + " " + str(vars(args)[key])
+        if error_message:
+            log_entry += " " + error_message
         with open(os.path.expanduser("~/.baka/history.log"), "a", encoding="utf-8", errors="surrogateescape") as log_file:
             log_file.write(log_entry + "\n")
     # email or write command output
