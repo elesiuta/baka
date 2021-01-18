@@ -87,6 +87,7 @@ class Config:
                     "subject": "example subject"
                 },
                 "encoding": "one of: bytes, text, universal_newlines (default if null)",
+                "interactive": False,
                 "verbosity": "one of: debug, info, error, silent (default if null)",
                 "write": "./jobs/example job %Y-%m-%d %H:%M.log (supports strftime format codes) or null"
             }
@@ -263,17 +264,47 @@ def main() -> int:
             else:
                 if args.job:
                     # capture command output for job, otherwise run command normally
+                    if "verbosity" in config.jobs[args.job] and config.jobs[args.job]["verbosity"]:
+                        if config.jobs[args.job]["verbosity"].lower() in ["debug"]:
+                            print("\033[94m%s\033[0m" % shlex.join(cmd))
+                    if "interactive" in config.jobs[args.job] and config.jobs[args.job]["interactive"]:
+                        response = input("Continue (yes/no/skip)? ")
+                        if response.strip().lower().startswith("y"):
+                            pass
+                        elif response.strip().lower().startswith("n"):
+                            break
+                        elif response.strip().lower().startswith("s"):
+                            continue
+                        else:
+                            print("\033[91mInvalid response, exiting\033[0m")
+                            break
                     encoding = None
                     if "encoding" in config.jobs[args.job] and config.jobs[args.job]["encoding"]:
                         if config.jobs[args.job]["encoding"].lower() == "bytes":
                             encoding = True
-                            proc = subprocess.run(cmd, capture_output=True)
+                            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
                         elif config.jobs[args.job]["encoding"].lower() == "text":
-                            proc = subprocess.run(cmd, capture_output=True, text=True)
+                            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
                         else:
-                            proc = subprocess.run(cmd, capture_output=True, universal_newlines=True)
+                            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, universal_newlines=True)
                     else:
-                        proc = subprocess.run(cmd, capture_output=True, universal_newlines=True)
+                        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, universal_newlines=True)
+                    if "verbosity" in config.jobs[args.job] and config.jobs[args.job]["verbosity"]:
+                        if config.jobs[args.job]["verbosity"].lower() in ["debug", "info"]:
+                            if encoding is None:
+                                for line in proc.stdout:
+                                    print(line.strip())
+                            else:
+                                for line in proc.stdout:
+                                    sys.stdout.buffer.write(line)
+                        if config.jobs[args.job]["verbosity"].lower() in ["debug", "info", "error"]:
+                            if encoding is None:
+                                for line in proc.stderr:
+                                    print(line.strip())
+                            else:
+                                for line in proc.stderr:
+                                    sys.stdout.buffer.write(line)
+                            print("\n")
                     command_output.append(">>> " + shlex.join(cmd))
                     if encoding is None:
                         command_output.append(proc.stdout.strip())
@@ -282,20 +313,6 @@ def main() -> int:
                         command_output.append(proc.stdout.decode().strip())
                         command_output.append(proc.stderr.decode().strip())
                     command_output.append("\n")
-                    if "verbosity" in config.jobs[args.job] and config.jobs[args.job]["verbosity"]:
-                        if config.jobs[args.job]["verbosity"].lower() in ["debug"]:
-                            print("\033[94m%s\033[0m" % shlex.join(cmd))
-                        if config.jobs[args.job]["verbosity"].lower() in ["debug", "info"]:
-                            if encoding is None:
-                                print(proc.stdout.strip())
-                            else:
-                                sys.stdout.buffer.write(proc.stdout)
-                        if config.jobs[args.job]["verbosity"].lower() in ["debug", "info", "error"]:
-                            if encoding is None:
-                                print(proc.stderr.strip(), end="\n\n")
-                            else:
-                                sys.stdout.buffer.write(proc.stderr)
-                                print("\n")
                 elif cmd[0] == "rsync":
                     # hide permission errors for rsync, otherwise run command normally
                     proc = subprocess.run(cmd, stderr=subprocess.PIPE, universal_newlines=True)
