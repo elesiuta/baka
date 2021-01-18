@@ -290,9 +290,11 @@ def main() -> int:
                         print("\n")
                     command_output.append(">>> " + shlex.join(cmd))
                     if proc.stdout:
-                        command_output.append(proc.stdout.decode().strip())
+                        for line in proc.stdout:
+                            command_output.append(proc.stdout.decode().strip())
                     if proc.stderr:
-                        command_output.append(proc.stderr.decode().strip())
+                        for line in proc.stderr:
+                            command_output.append(proc.stderr.decode().strip())
                     command_output.append("\n")
                 elif cmd[0] == "rsync":
                     # hide permission errors for rsync, otherwise run command normally
