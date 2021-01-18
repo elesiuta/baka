@@ -259,7 +259,7 @@ def main() -> int:
             if args.dry_run:
                 print(shlex.join(cmd))
                 command_output.append("dry-run")
-                command_output.append(shlex.join(cmd))
+                command_output.append(">>> " + shlex.join(cmd))
             else:
                 if args.job:
                     # capture command output for job, otherwise run command normally
@@ -274,7 +274,7 @@ def main() -> int:
                             proc = subprocess.run(cmd, capture_output=True, universal_newlines=True)
                     else:
                         proc = subprocess.run(cmd, capture_output=True, universal_newlines=True)
-                    command_output.append(shlex.join(cmd))
+                    command_output.append(">>> " + shlex.join(cmd))
                     if encoding is None:
                         command_output.append(proc.stdout.strip())
                         command_output.append(proc.stderr.strip())
