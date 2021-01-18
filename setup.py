@@ -5,7 +5,7 @@ with open("README.md", "r") as f:
 
 setuptools.setup(
     name="bakabakabaka",
-    version="0.4.2",
+    version="0.4.3",
     description="Baka Admin's Kludge Assistant",
     long_description=long_description,
     long_description_content_type="text/markdown",

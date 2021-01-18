@@ -16,6 +16,7 @@
 import argparse
 import datetime
 import email
+import io
 import json
 import os
 import shlex
@@ -281,22 +282,26 @@ def main() -> int:
                             print("\033[91mInvalid response, exiting\033[0m")
                             break
                     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    if verbosity in ["debug", "info"] and proc.stdout:
-                        for line in proc.stdout:
-                            sys.stdout.buffer.write(line)
-                        proc.stdout.seek(0)
-                    if verbosity in ["debug", "info", "error"] and proc.stderr:
-                        for line in proc.stderr:
-                            sys.stderr.buffer.write(line)
-                        proc.stderr.seek(0)
-                        print("\n")
-                    command_output.append(">>> " + shlex.join(cmd))
+                    stdout_copy = io.BytesIO()
                     if proc.stdout:
                         for line in proc.stdout:
-                            command_output.append(line.decode().strip())
+                            if verbosity in ["debug", "info"]:
+                                sys.stdout.buffer.write(line)
+                            stdout_copy.write(line)
+                        stdout_copy.seek(0)
+                    stderr_copy = io.BytesIO()
                     if proc.stderr:
                         for line in proc.stderr:
-                            command_output.append(line.decode().strip())
+                            if verbosity in ["debug", "info", "error"]:
+                                sys.stderr.buffer.write(line)
+                            stderr_copy.write(line)
+                        stderr_copy.seek(0)
+                        print("\n")
+                    command_output.append(">>> " + shlex.join(cmd))
+                    for line in stdout_copy:
+                        command_output.append(line.decode().strip())
+                    for line in stderr_copy:
+                        command_output.append(line.decode().strip())
                     command_output.append("\n")
                 elif cmd[0] == "rsync":
                     # hide permission errors for rsync, otherwise run command normally
