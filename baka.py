@@ -280,21 +280,23 @@ def main() -> int:
                         else:
                             print("\033[91mInvalid response, exiting\033[0m")
                             break
-                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                     if verbosity in ["debug", "info"] and proc.stdout:
                         for line in proc.stdout:
                             sys.stdout.buffer.write(line)
+                        proc.stdout.seek(0)
                     if verbosity in ["debug", "info", "error"] and proc.stderr:
                         for line in proc.stderr:
-                            sys.stdout.buffer.write(line)
+                            sys.stderr.buffer.write(line)
+                        proc.stderr.seek(0)
                         print("\n")
                     command_output.append(">>> " + shlex.join(cmd))
                     if proc.stdout:
                         for line in proc.stdout:
-                            command_output.append(proc.stdout.decode().strip())
+                            command_output.append(line.decode().strip())
                     if proc.stderr:
                         for line in proc.stderr:
-                            command_output.append(proc.stderr.decode().strip())
+                            command_output.append(line.decode().strip())
                     command_output.append("\n")
                 elif cmd[0] == "rsync":
                     # hide permission errors for rsync, otherwise run command normally
