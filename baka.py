@@ -283,20 +283,19 @@ def main() -> int:
                             break
                     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                     stdout_copy = io.BytesIO()
-                    if proc.stdout:
-                        for line in proc.stdout:
-                            if verbosity in ["debug", "info"]:
-                                sys.stdout.buffer.write(line)
-                            stdout_copy.write(line)
-                        stdout_copy.seek(0)
+                    for line in proc.stdout:
+                        if verbosity in ["debug", "info"]:
+                            sys.stdout.buffer.write(line)
+                        stdout_copy.write(line)
+                    stdout_copy.seek(0)
                     stderr_copy = io.BytesIO()
-                    if proc.stderr:
-                        for line in proc.stderr:
-                            if verbosity in ["debug", "info", "error"]:
-                                sys.stderr.buffer.write(line)
-                            stderr_copy.write(line)
-                        stderr_copy.seek(0)
-                        print("\n")
+                    for line in proc.stderr:
+                        if verbosity in ["debug", "info", "error"]:
+                            sys.stderr.buffer.write(line)
+                        stderr_copy.write(line)
+                    stderr_copy.seek(0)
+                    print("\n")
+                    proc.wait()
                     command_output.append(">>> " + shlex.join(cmd))
                     for line in stdout_copy:
                         command_output.append(line.decode().strip())
