@@ -275,7 +275,7 @@ def main() -> int:
                     if verbosity in ["debug"]:
                         print("\033[94m%s\033[0m" % shlex.join(cmd))
                     if "interactive" in config.jobs[args.job] and config.jobs[args.job]["interactive"]:
-                        response = input("Continue (yes/no/skip)? ")
+                        response = input("\033[93mContinue (yes/no/skip)?\033[0m ")
                         if response.strip().lower().startswith("y"):
                             pass
                         elif response.strip().lower().startswith("n"):
@@ -303,6 +303,8 @@ def main() -> int:
                         command_output.append(proc.stdout.decode().strip())
                         command_output.append(proc.stderr.decode().strip())
                         command_output.append("\n")
+                    elif verbosity in ["debug", "info", "error"]:
+                        print("")
                 elif cmd[0] == "rsync":
                     # hide permission errors for rsync, otherwise run command normally
                     proc = subprocess.run(cmd, stderr=subprocess.PIPE, universal_newlines=True)
