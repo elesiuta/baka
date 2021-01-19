@@ -281,29 +281,22 @@ def main() -> int:
                         else:
                             print("\033[91mInvalid response, exiting\033[0m")
                             break
-                    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0) as proc:
-                        stdout_copy = io.BytesIO()
+                    stdout_bytes = io.BytesIO()
+                    stderr_bytes = io.BytesIO()
+                    with subprocess.Popen(cmd, stdout=stdout_bytes, stderr=stderr_bytes) as proc:
                         if verbosity in ["debug", "info"]:
-                            for line in proc.stdout:
+                            for line in stdout_bytes:
                                 sys.stdout.buffer.write(line)
-                                stdout_copy.write(line)
-                        else:
-                            stdout_copy.write(proc.stdout.read())
-                        stdout_copy.seek(0)
-                        stderr_copy = io.BytesIO()
                         if verbosity in ["debug", "info", "error"]:
-                            for line in proc.stderr:
+                            for line in stderr_bytes:
                                 sys.stderr.buffer.write(line)
-                                stderr_copy.write(line)
-                        else:
-                            stderr_copy.write(proc.stderr.read())
-                        stderr_copy.seek(0)
                         print("\n")
+                    stdout_bytes.seek(0)
+                    stderr_bytes.seek(0)
                     command_output.append(">>> " + shlex.join(cmd))
-                    cat = subprocess.Popen(["cat"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    outs, errs = cat.communicate(stdout_copy.read())
-                    command_output.append(outs.decode().strip())
-                    command_output.append(stderr_copy.read().decode().strip())
+                    cat = subprocess.run(["cat"], stdin=stdout_bytes, capture_output=True)
+                    command_output.append(cat.stdout.decode().strip())
+                    command_output.append(stderr_bytes.read().strip())
                     command_output.append("\n")
                 elif cmd[0] == "rsync":
                     # hide permission errors for rsync, otherwise run command normally
