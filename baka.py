@@ -16,7 +16,6 @@
 import argparse
 import datetime
 import email
-import io
 import json
 import os
 import shlex
@@ -292,13 +291,13 @@ def main() -> int:
                         if verbosity in ["debug", "info"]:
                             proc_out = sys.stdout
                         if verbosity in ["debug", "info", "error"]:
-                            proc_err = sys.stdout
+                            proc_err = sys.stderr
                     proc = subprocess.run(cmd, stdout=proc_out, stderr=proc_err)
                     if capture_output:
                         if verbosity in ["debug", "info"]:
                             sys.stdout.buffer.write(proc.stdout)
                         if verbosity in ["debug", "info", "error"]:
-                            sys.stdout.buffer.write(proc.stderr)
+                            sys.stderr.buffer.write(proc.stderr)
                             print("\n")
                         command_output.append(">>> " + shlex.join(cmd))
                         command_output.append(proc.stdout.decode().strip())
