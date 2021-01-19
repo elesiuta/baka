@@ -281,22 +281,25 @@ def main() -> int:
                         else:
                             print("\033[91mInvalid response, exiting\033[0m")
                             break
-                    stdout_bytes = io.BytesIO()
-                    stderr_bytes = io.BytesIO()
-                    with subprocess.Popen(cmd, stdout=stdout_bytes, stderr=stderr_bytes) as proc:
+                    stdout_copy = []
+                    stderr_copy = []
+                    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True) as proc:
                         if verbosity in ["debug", "info"]:
-                            for line in stdout_bytes:
-                                sys.stdout.buffer.write(line)
+                            for line in proc.stdout:
+                                sys.stdout.write(line)
+                                stdout_copy.append(line)
+                        else:
+                            stdout_copy = proc.stdout.readlines()
                         if verbosity in ["debug", "info", "error"]:
-                            for line in stderr_bytes:
-                                sys.stderr.buffer.write(line)
-                        print("\n")
-                    stdout_bytes.seek(0)
-                    stderr_bytes.seek(0)
+                            for line in proc.stderr:
+                                sys.stderr.write(line)
+                                stderr_copy.append(line)
+                            print("\n")
+                        else:
+                            stderr_copy = proc.stderr.readlines()
                     command_output.append(">>> " + shlex.join(cmd))
-                    cat = subprocess.run(["cat"], stdin=stdout_bytes, capture_output=True)
-                    command_output.append(cat.stdout.decode().strip())
-                    command_output.append(stderr_bytes.read().strip())
+                    command_output.append("".join(stdout_copy).strip())
+                    command_output.append("".join(stderr_copy).strip())
                     command_output.append("\n")
                 elif cmd[0] == "rsync":
                     # hide permission errors for rsync, otherwise run command normally
