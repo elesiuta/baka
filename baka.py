@@ -282,25 +282,29 @@ def main() -> int:
                             print("\033[91mInvalid response, exiting\033[0m")
                             break
                     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    stdout_copy = io.BytesIO()
-                    for line in proc.stdout:
-                        if verbosity in ["debug", "info"]:
+                    stdout_copy = io.StringIO()
+                    if verbosity in ["debug", "info"]:
+                        for line in proc.stdout:
                             sys.stdout.buffer.write(line)
-                        stdout_copy.write(line)
+                            stdout_copy.write(line.decode())
+                    else:
+                        stdout_copy.write(proc.stdout.decode())
                     stdout_copy.seek(0)
-                    stderr_copy = io.BytesIO()
-                    for line in proc.stderr:
-                        if verbosity in ["debug", "info", "error"]:
+                    stderr_copy = io.StringIO()
+                    if verbosity in ["debug", "info", "error"]:
+                        for line in proc.stderr:
                             sys.stderr.buffer.write(line)
-                        stderr_copy.write(line)
+                            stderr_copy.write(line.decode())
+                    else:
+                        stderr_copy.write(proc.stderr.decode())
                     stderr_copy.seek(0)
                     print("\n")
                     proc.wait()
                     command_output.append(">>> " + shlex.join(cmd))
-                    for line in stdout_copy:
-                        command_output.append(line.decode().strip())
-                    for line in stderr_copy:
-                        command_output.append(line.decode().strip())
+                    for line in stdout_copy.readlines():
+                        command_output.append(line.strip())
+                    for line in stderr_copy.readlines():
+                        command_output.append(line.strip())
                     command_output.append("\n")
                 elif cmd[0] == "rsync":
                     # hide permission errors for rsync, otherwise run command normally
