@@ -263,10 +263,15 @@ def main() -> int:
                 command_output.append(">>> " + shlex.join(cmd))
             else:
                 if args.job:
-                    # capture command output for job, otherwise run command normally
+                    # run command as part of job, otherwise run command normally
+                    capture_output = bool(
+                        ("write" in config.jobs[args.job] and config.jobs[args.job]["write"]) or
+                        ("email" in config.jobs[args.job] and config.jobs[args.job]["email"] and config.jobs[args.job]["email"]["to"])
+                    )
+                    verbosity = ""
                     if "verbosity" in config.jobs[args.job] and config.jobs[args.job]["verbosity"]:
                         verbosity = config.jobs[args.job]["verbosity"].lower()
-                    else:
+                    if verbosity not in ["debug", "info", "error", "silent"]:
                         verbosity = "debug"
                     if verbosity in ["debug"]:
                         print("\033[94m%s\033[0m" % shlex.join(cmd))
@@ -281,26 +286,24 @@ def main() -> int:
                         else:
                             print("\033[91mInvalid response, exiting\033[0m")
                             break
-                    stdout_copy = []
-                    stderr_copy = []
-                    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True) as proc:
+                    proc_out = subprocess.PIPE
+                    proc_err = subprocess.PIPE
+                    if not capture_output:
                         if verbosity in ["debug", "info"]:
-                            for line in proc.stdout:
-                                sys.stdout.write(line)
-                                stdout_copy.append(line)
-                        else:
-                            stdout_copy = proc.stdout.readlines()
+                            proc_out = sys.stdout
                         if verbosity in ["debug", "info", "error"]:
-                            for line in proc.stderr:
-                                sys.stderr.write(line)
-                                stderr_copy.append(line)
+                            proc_err = sys.stdout
+                    proc = subprocess.run(cmd, stdout=proc_out, stderr=proc_err)
+                    if capture_output:
+                        if verbosity in ["debug", "info"]:
+                            sys.stdout.buffer.write(proc.stdout)
+                        if verbosity in ["debug", "info", "error"]:
+                            sys.stdout.buffer.write(proc.stderr)
                             print("\n")
-                        else:
-                            stderr_copy = proc.stderr.readlines()
-                    command_output.append(">>> " + shlex.join(cmd))
-                    command_output.append("".join(stdout_copy).strip())
-                    command_output.append("".join(stderr_copy).strip())
-                    command_output.append("\n")
+                        command_output.append(">>> " + shlex.join(cmd))
+                        command_output.append(proc.stdout.decode().strip())
+                        command_output.append(proc.stderr.decode().strip())
+                        command_output.append("\n")
                 elif cmd[0] == "rsync":
                     # hide permission errors for rsync, otherwise run command normally
                     proc = subprocess.run(cmd, stderr=subprocess.PIPE, universal_newlines=True)
