@@ -275,7 +275,7 @@ def main() -> int:
                     if verbosity in ["debug"]:
                         print("\033[94m%s\033[0m" % shlex.join(cmd))
                     if "interactive" in config.jobs[args.job] and config.jobs[args.job]["interactive"]:
-                        response = input("\033[93mContinue (yes/no/skip)?\033[0m ")
+                        response = input("\033[92mContinue (yes/no/skip)?\033[0m ")
                         if response.strip().lower().startswith("y"):
                             pass
                         elif response.strip().lower().startswith("n"):
