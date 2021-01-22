@@ -254,6 +254,7 @@ def main() -> int:
     # execute commands
     command_output = []
     error_message = ""
+    return_code = 0
     try:
         for cmd in cmds:
             if args.dry_run:
@@ -293,6 +294,8 @@ def main() -> int:
                         if verbosity in ["debug", "info", "error"]:
                             proc_err = sys.stderr
                     proc = subprocess.run(cmd, stdout=proc_out, stderr=proc_err)
+                    if proc.returncode != 0:
+                        return_code = proc.returncode
                     if capture_output:
                         if verbosity in ["debug", "info"]:
                             sys.stdout.buffer.write(proc.stdout)
@@ -313,7 +316,9 @@ def main() -> int:
                             print(line)
                 else:
                     # run command normally
-                    subprocess.run(cmd)
+                    proc = subprocess.run(cmd)
+                    if proc.returncode != 0:
+                        return_code = proc.returncode
     except Exception as e:
         error_message = "Error baka line: %s For: %s %s %s" % (sys.exc_info()[2].tb_lineno, shlex.join(cmd), type(e).__name__, e.args)
         command_output.append(error_message)
@@ -338,7 +343,7 @@ def main() -> int:
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             with open(file_path, "w", encoding="utf-8", errors="backslashreplace") as f:
                 f.write(command_output)
-    return 0
+    return return_code
 
 
 if __name__ == "__main__":
