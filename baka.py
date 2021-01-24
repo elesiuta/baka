@@ -295,7 +295,7 @@ def main() -> int:
                             proc_err = sys.stderr
                     proc = subprocess.run(cmd, stdout=proc_out, stderr=proc_err)
                     if proc.returncode != 0:
-                        return_code = proc.returncode
+                        return_code += 1
                     if capture_output:
                         if verbosity in ["debug", "info"]:
                             sys.stdout.buffer.write(proc.stdout)
@@ -316,9 +316,7 @@ def main() -> int:
                             print(line)
                 else:
                     # run command normally
-                    proc = subprocess.run(cmd)
-                    if proc.returncode != 0:
-                        return_code = proc.returncode
+                    subprocess.run(cmd)
     except Exception as e:
         error_message = "Error baka line: %s For: %s %s %s" % (sys.exc_info()[2].tb_lineno, shlex.join(cmd), type(e).__name__, e.args)
         command_output.append(error_message)
