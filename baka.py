@@ -335,7 +335,12 @@ def main() -> int:
     if args.job:
         command_output = "\n".join(command_output)
         if "email" in config.jobs[args.job] and config.jobs[args.job]["email"] and config.jobs[args.job]["email"]["to"]:
-            send_email(config.email, config.jobs[args.job]["email"], command_output)
+            try:
+                send_email(config.email, config.jobs[args.job]["email"], command_output)
+            except Exception as e:
+                error_email = "--- %s ---\nEmail Error: %s %s\nMessage:\n%s" % (time.ctime(), type(e).__name__, e.args, command_output)
+                with open(os.path.expanduser("~/.baka/error.log"), "a", encoding="utf-8", errors="surrogateescape") as log_file:
+                    log_file.write(error_email + "\n")
         if "write" in config.jobs[args.job] and config.jobs[args.job]["write"]:
             file_path = os.path.abspath(datetime.datetime.now().strftime(config.jobs[args.job]["write"]))
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
