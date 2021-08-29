@@ -1,11 +1,12 @@
 import setuptools
+import baka
 
 with open("README.md", "r") as f:
     long_description = f.read()
 
 setuptools.setup(
     name="bakabakabaka",
-    version="0.5.5",
+    version=baka.VERSION,
     description="Baka Admin's Kludge Assistant",
     long_description=long_description,
     long_description_content_type="text/markdown",

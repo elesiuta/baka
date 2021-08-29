@@ -24,23 +24,32 @@ import subprocess
 import sys
 import time
 
+VERSION = "0.5.6"
+
 
 def init_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Baka Admin's Kludge Assistant",
                                      usage="%(prog)s [--dry-run] <argument>")
+    parser.add_argument("--version", action="version", version=VERSION)
     maingrp = parser.add_mutually_exclusive_group()
     maingrp.add_argument("--init", dest="init", action="store_true",
                          help="open config, init git repo, add files then commit")
     maingrp.add_argument("--commit", dest="commit", type=str, metavar="msg",
                          help="git add -u and commit your changes to tracked files")
+    maingrp.add_argument("--push", dest="push", action="store_true",
+                         help="git push (caution, can expose sensitive data)")
     maingrp.add_argument("--install", dest="install", nargs=argparse.REMAINDER,
                          help="install package(s) and commit changes")
     maingrp.add_argument("--remove", dest="remove", nargs=argparse.REMAINDER, default=None,
                          help="remove package(s) and commit changes")
     maingrp.add_argument("--upgrade", dest="upgrade", action="store_true",
                          help="upgrade packages on system and commit changes")
+    maingrp.add_argument("--docker", dest="docker", type=str.lower, metavar="cmd", choices=["up", "down", "pull"],
+                         help="run docker up|down|pull for each compose file")
     maingrp.add_argument("--job", dest="job", type=str, metavar="name",
                          help="run commands for job with name")
+    maingrp.add_argument("--list", dest="list", action="store_true",
+                         help="show list of jobs")
     maingrp.add_argument("--status", dest="status", action="store_true",
                          help="run commands to track status of various things")
     maingrp.add_argument("--verify", dest="verify", action="store_true",
@@ -86,7 +95,9 @@ class Config:
                     "to": "email@domain.com or null",
                     "subject": "example subject"
                 },
+                "exit_non_zero": False,
                 "interactive": False,
+                "shlex_split": False,
                 "verbosity": "one of: debug (default if null), info, error, silent",
                 "write": "./jobs/example job %Y-%m-%d %H:%M.log (supports strftime format codes) or null"
             }
@@ -190,6 +201,10 @@ def main() -> int:
             *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka commit " + args.commit]
         ]
+    elif args.push:
+        cmds = [
+            ["git", "push"]
+        ]
     elif args.install:
         cmds = [
             *rsync_and_git_add_all(config),
@@ -214,8 +229,21 @@ def main() -> int:
             *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka upgrade"]
         ]
+    elif args.docker:
+        cmd = "up -d" if args.docker == "up" else args.docker
+        cmds = []
+        for path in os.listdir("docker"):
+            if not os.path.exists(os.path.join("docker", path, ".ignore")):
+                cmds.append(["bash", "-c", "cd docker/%s && sudo docker-compose %s" % (path, cmd)])
     elif args.job:
         cmds = config.jobs[args.job]["commands"]
+    elif args.list:
+        cmds = [
+            ["echo", "Prompt\tExit!0\tJob Name\n========================"],
+            *[["echo", "%s\t%s\t%s" % ("interactive" in config.jobs[job] and config.jobs[job]["interactive"],
+                                       "exit_non_zero" in config.jobs[job] and config.jobs[job]["exit_non_zero"],
+                                       job)] for job in config.jobs]
+        ]
     elif args.status:
         assert ("history" not in config.status_checks)
         assert all([key not in config.system_integrity for key in config.status_checks])
@@ -241,7 +269,7 @@ def main() -> int:
     elif args.diff:
         cmds = [
             *rsync_and_git_add_all(config),
-            ["git", "status", "-s"],
+            ["git", "status", "-sb"],
             ["git", "diff", "--color-words", "--cached", "--minimal"]
         ]
     elif args.log:
@@ -257,6 +285,8 @@ def main() -> int:
     return_code = 0
     try:
         for cmd in cmds:
+            if args.job and "shlex_split" in config.jobs[args.job] and config.jobs[args.job]["shlex_split"]:
+                cmd = shlex.split(cmd)
             if args.dry_run:
                 print(shlex.join(cmd))
                 command_output.append("dry-run")
@@ -295,7 +325,14 @@ def main() -> int:
                             proc_err = sys.stderr
                     proc = subprocess.run(cmd, stdout=proc_out, stderr=proc_err)
                     if proc.returncode != 0:
-                        return_code += 1
+                        if "exit_non_zero" in config.jobs[args.job] and config.jobs[args.job]["exit_non_zero"]:
+                            return_code = proc.returncode
+                            error_message = "Error: baka job encountered a non-zero return code for `%s`, exiting" % shlex.join(cmd)
+                            command_output.append(error_message)
+                            print(error_message, file=sys.stderr)
+                            break
+                        else:
+                            return_code += 1
                     if capture_output:
                         if verbosity in ["debug", "info"]:
                             sys.stdout.buffer.write(proc.stdout)
@@ -316,7 +353,9 @@ def main() -> int:
                             print(line)
                 else:
                     # run command normally
-                    subprocess.run(cmd)
+                    proc = subprocess.run(cmd)
+                    if proc.returncode != 0:
+                        return_code += 1
     except Exception as e:
         error_message = "Error baka line: %s For: %s %s %s" % (sys.exc_info()[2].tb_lineno, shlex.join(cmd), type(e).__name__, e.args)
         command_output.append(error_message)
