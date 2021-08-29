@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "0.5.6"
+VERSION = "0.5.7"
 
 
 def init_parser() -> argparse.ArgumentParser:
@@ -35,7 +35,7 @@ def init_parser() -> argparse.ArgumentParser:
     maingrp.add_argument("--init", dest="init", action="store_true",
                          help="open config, init git repo, add files then commit")
     maingrp.add_argument("--commit", dest="commit", type=str, metavar="msg",
-                         help="git add -u and commit your changes to tracked files")
+                         help="git add and commit your changes to tracked files")
     maingrp.add_argument("--push", dest="push", action="store_true",
                          help="git push (caution, can expose sensitive data)")
     maingrp.add_argument("--install", dest="install", nargs=argparse.REMAINDER,
@@ -44,8 +44,10 @@ def init_parser() -> argparse.ArgumentParser:
                          help="remove package(s) and commit changes")
     maingrp.add_argument("--upgrade", dest="upgrade", action="store_true",
                          help="upgrade packages on system and commit changes")
-    maingrp.add_argument("--docker", dest="docker", type=str.lower, metavar="cmd", choices=["up", "down", "pull"],
-                         help="run docker up|down|pull for each compose file")
+    maingrp.add_argument("--forget", dest="forget", type=str, metavar="path",
+                         help="forget and untrack path (rewrites git history)")
+    maingrp.add_argument("--docker", dest="docker", nargs=argparse.REMAINDER,
+                         help="usage: --docker <up|down|pull> <all|names...>")
     maingrp.add_argument("--job", dest="job", type=str, metavar="name",
                          help="run commands for job with name")
     maingrp.add_argument("--list", dest="list", action="store_true",
@@ -163,6 +165,7 @@ def main() -> int:
     # init config
     config = Config()
     # change cwd to repo folder
+    original_cwd = os.getcwd()
     os.chdir(os.path.expanduser("~/.baka"))
     # select commands
     if args.init:
@@ -229,12 +232,33 @@ def main() -> int:
             *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka upgrade"]
         ]
+    elif args.forget:
+        if os.path.isabs(args.forget):
+            path = os.path.normpath(os.path.relpath(args.forget))
+        else:
+            path = os.path.normpath(os.path.relpath(os.path.join(original_cwd, args.forget)))
+        assert os.path.exists(path)
+        cmds = [
+            ["git", "commit", "-m", "baka pre-forget"],
+            ["git", "filter-branch", "--index-filter", "git rm -rf --cached --ignore-unmatch \"%s\"" % path, "HEAD"],
+            ["bash", "-c", "echo \"\n# baka forget\n%s\" >> .gitignore" % path],
+            ["git", "add", ".gitignore"],
+            ["git", "commit", "-m", "baka forget %s" % path]
+        ]
     elif args.docker:
-        cmd = "up -d" if args.docker == "up" else args.docker
+        assert args.docker[0] in ["up", "down", "pull"] and len(args.docker) >= 2
+        assert args.docker[1] != "all" or (args.docker[1] == "all" and len(args.docker) == 2)
+        cmd = "up -d" if args.docker[0] == "up" else args.docker[0]
         cmds = []
-        for path in os.listdir("docker"):
-            if not os.path.exists(os.path.join("docker", path, ".ignore")):
-                cmds.append(["bash", "-c", "cd docker/%s && sudo docker-compose %s" % (path, cmd)])
+        if args.docker[1] == "all":
+            for folder in sorted(os.listdir("docker")):
+                if not os.path.exists(os.path.join("docker", folder, ".dockerignore")):
+                    assert os.path.exists(os.path.join("docker", folder, "docker-compose.yml"))
+                    cmds.append(["bash", "-c", "cd docker/%s && sudo docker-compose %s" % (folder, cmd)])
+        else:
+            for folder in args.docker[1:]:
+                assert os.path.exists(os.path.join("docker", folder, "docker-compose.yml"))
+                cmds.append(["bash", "-c", "cd docker/%s && sudo docker-compose %s" % (folder, cmd)])
     elif args.job:
         cmds = config.jobs[args.job]["commands"]
     elif args.list:
@@ -279,6 +303,9 @@ def main() -> int:
         ]]
     elif args.show:
         cmds = [["git", "show", "--color-words"]]
+    else:
+        parser.print_usage()
+        return 2
     # execute commands
     command_output = []
     error_message = ""
@@ -286,6 +313,8 @@ def main() -> int:
     try:
         for cmd in cmds:
             if args.job and "shlex_split" in config.jobs[args.job] and config.jobs[args.job]["shlex_split"]:
+                if type(cmd) == list and len(cmd) == 1:
+                    cmd = cmd[0]
                 cmd = shlex.split(cmd)
             if args.dry_run:
                 print(shlex.join(cmd))
