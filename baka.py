@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "0.6.1"
+VERSION = "0.6.2"
 
 
 def init_parser() -> argparse.ArgumentParser:
@@ -234,7 +234,7 @@ def main() -> int:
         ]
     elif args.untrack:
         paths = []
-        for path in args.untrack:
+        for path in sorted(args.untrack):
             if os.path.isabs(path):
                 paths.append(os.path.normpath(os.path.relpath(path)))
             else:
@@ -385,7 +385,7 @@ def main() -> int:
                 else:
                     # run command normally
                     proc = subprocess.run(cmd)
-                    if proc.returncode != 0:
+                    if proc.returncode != 0 and not (cmd[0] == "git" and cmd[1] == "commit"):
                         return_code += 1
     except Exception as e:
         error_message = "Error baka line: %s For: %s %s %s" % (sys.exc_info()[2].tb_lineno, shlex.join(cmd), type(e).__name__, e.args)
