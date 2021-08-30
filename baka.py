@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "0.6.0"
+VERSION = "0.6.1"
 
 
 def init_parser() -> argparse.ArgumentParser:
@@ -44,8 +44,8 @@ def init_parser() -> argparse.ArgumentParser:
                          help="remove package(s) and commit changes")
     maingrp.add_argument("--upgrade", dest="upgrade", action="store_true",
                          help="upgrade packages on system and commit changes")
-    maingrp.add_argument("--untrack", dest="untrack", type=str, metavar="path",
-                         help="untrack path from git")
+    maingrp.add_argument("--untrack", dest="untrack", nargs=argparse.REMAINDER,
+                         help="untrack path(s) from git")
     maingrp.add_argument("--docker", dest="docker", nargs=argparse.REMAINDER,
                          help="usage: --docker <up|down|pull> <all|names...>")
     maingrp.add_argument("--job", dest="job", type=str, metavar="name",
@@ -233,17 +233,19 @@ def main() -> int:
             ["git", "commit", "-m", "baka upgrade"]
         ]
     elif args.untrack:
-        if os.path.isabs(args.untrack):
-            path = os.path.normpath(os.path.relpath(args.untrack))
-        else:
-            path = os.path.normpath(os.path.relpath(os.path.join(original_cwd, args.untrack)))
-        assert os.path.exists(path)
+        paths = []
+        for path in args.untrack:
+            if os.path.isabs(path):
+                paths.append(os.path.normpath(os.path.relpath(path)))
+            else:
+                paths.append(os.path.normpath(os.path.relpath(os.path.join(original_cwd, path))))
+            assert os.path.exists(paths[-1])
         cmds = [
             ["git", "commit", "-m", "baka pre-untrack"],
-            ["git", "rm", "-r", "--cached", path],
-            ["bash", "-c", "echo \"\n# baka untrack\n%s\" >> .gitignore" % path],
+            ["git", "rm", "-r", "--cached", *paths],
+            ["bash", "-c", "echo \"\n# baka untrack\n%s\" >> .gitignore" % "\n".join(paths)],
             ["git", "add", ".gitignore"],
-            ["git", "commit", "-m", "baka untrack %s" % path]
+            ["git", "commit", "-m", "baka untrack %s" % " ".join(paths)]
         ]
     elif args.docker:
         assert args.docker[0] in ["up", "down", "pull"] and len(args.docker) >= 2
