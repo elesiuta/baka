@@ -17,10 +17,10 @@ optional arguments:
   --init         open config, init git repo, add files then commit
   --commit msg   git add and commit your changes to tracked files
   --push         git push (caution, can expose sensitive data)
+  --untrack ...  untrack path(s) from git
   --install ...  install package(s) and commit changes
   --remove ...   remove package(s) and commit changes
   --upgrade      upgrade packages on system and commit changes
-  --untrack ...  untrack path(s) from git
   --docker ...   usage: --docker <up|down|pull> <all|names...>
   --job name     run commands for job with name
   --list         show list of jobs
@@ -29,5 +29,6 @@ optional arguments:
   --diff         show git diff --color-words
   --log          show pretty git log
   --show         show most recent commit
+  -i             force job to run in interactive mode
   -n, --dry-run  print system commands instead of executing them
 ```

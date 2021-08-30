@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "0.6.2"
+VERSION = "0.6.3"
 
 
 def init_parser() -> argparse.ArgumentParser:
@@ -38,14 +38,14 @@ def init_parser() -> argparse.ArgumentParser:
                          help="git add and commit your changes to tracked files")
     maingrp.add_argument("--push", dest="push", action="store_true",
                          help="git push (caution, can expose sensitive data)")
+    maingrp.add_argument("--untrack", dest="untrack", nargs=argparse.REMAINDER,
+                         help="untrack path(s) from git")
     maingrp.add_argument("--install", dest="install", nargs=argparse.REMAINDER,
                          help="install package(s) and commit changes")
     maingrp.add_argument("--remove", dest="remove", nargs=argparse.REMAINDER, default=None,
                          help="remove package(s) and commit changes")
     maingrp.add_argument("--upgrade", dest="upgrade", action="store_true",
                          help="upgrade packages on system and commit changes")
-    maingrp.add_argument("--untrack", dest="untrack", nargs=argparse.REMAINDER,
-                         help="untrack path(s) from git")
     maingrp.add_argument("--docker", dest="docker", nargs=argparse.REMAINDER,
                          help="usage: --docker <up|down|pull> <all|names...>")
     maingrp.add_argument("--job", dest="job", type=str, metavar="name",
@@ -62,6 +62,8 @@ def init_parser() -> argparse.ArgumentParser:
                          help="show pretty git log")
     maingrp.add_argument("--show", dest="show", action="store_true",
                          help="show most recent commit")
+    parser.add_argument("-i", dest="interactive", action="store_true",
+                         help="force job to run in interactive mode")
     parser.add_argument("-n", "--dry-run", dest="dry_run", action="store_true",
                         help="print system commands instead of executing them")
     return parser
@@ -208,6 +210,21 @@ def main() -> int:
         cmds = [
             ["git", "push"]
         ]
+    elif args.untrack:
+        paths = []
+        for path in sorted(args.untrack):
+            if os.path.isabs(path):
+                paths.append(os.path.normpath(os.path.relpath(path)))
+            else:
+                paths.append(os.path.normpath(os.path.relpath(os.path.join(original_cwd, path))))
+            assert os.path.exists(paths[-1])
+        cmds = [
+            ["git", "commit", "-m", "baka pre-untrack"],
+            ["git", "rm", "-r", "--cached", *paths],
+            ["bash", "-c", "echo \"\n# baka untrack\n%s\" >> .gitignore" % "\n".join(paths)],
+            ["git", "add", ".gitignore"],
+            ["git", "commit", "-m", "baka untrack %s" % " ".join(paths)]
+        ]
     elif args.install:
         cmds = [
             *rsync_and_git_add_all(config),
@@ -232,21 +249,6 @@ def main() -> int:
             *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka upgrade"]
         ]
-    elif args.untrack:
-        paths = []
-        for path in sorted(args.untrack):
-            if os.path.isabs(path):
-                paths.append(os.path.normpath(os.path.relpath(path)))
-            else:
-                paths.append(os.path.normpath(os.path.relpath(os.path.join(original_cwd, path))))
-            assert os.path.exists(paths[-1])
-        cmds = [
-            ["git", "commit", "-m", "baka pre-untrack"],
-            ["git", "rm", "-r", "--cached", *paths],
-            ["bash", "-c", "echo \"\n# baka untrack\n%s\" >> .gitignore" % "\n".join(paths)],
-            ["git", "add", ".gitignore"],
-            ["git", "commit", "-m", "baka untrack %s" % " ".join(paths)]
-        ]
     elif args.docker:
         assert args.docker[0] in ["up", "down", "pull"] and len(args.docker) >= 2
         assert args.docker[1] != "all" or (args.docker[1] == "all" and len(args.docker) == 2)
@@ -262,6 +264,8 @@ def main() -> int:
                 assert os.path.exists(os.path.join("docker", folder, "docker-compose.yml"))
                 cmds.append(["bash", "-c", "cd docker/%s && sudo docker-compose %s" % (folder, cmd)])
     elif args.job:
+        if args.interactive:
+            config.jobs[args.job]["interactive"] = True
         cmds = config.jobs[args.job]["commands"]
     elif args.list:
         cmds = [
