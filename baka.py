@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "0.6.3"
+VERSION = "0.6.4"
 
 
 def init_parser() -> argparse.ArgumentParser:
@@ -37,7 +37,7 @@ def init_parser() -> argparse.ArgumentParser:
     maingrp.add_argument("--commit", dest="commit", type=str, metavar="msg",
                          help="git add and commit your changes to tracked files")
     maingrp.add_argument("--push", dest="push", action="store_true",
-                         help="git push (caution, can expose sensitive data)")
+                         help="git push (caution, ensure remote is private)")
     maingrp.add_argument("--untrack", dest="untrack", nargs=argparse.REMAINDER,
                          help="untrack path(s) from git")
     maingrp.add_argument("--install", dest="install", nargs=argparse.REMAINDER,
@@ -52,10 +52,10 @@ def init_parser() -> argparse.ArgumentParser:
                          help="run commands for job with name")
     maingrp.add_argument("--list", dest="list", action="store_true",
                          help="show list of jobs")
-    maingrp.add_argument("--status", dest="status", action="store_true",
-                         help="run commands to track status of various things")
-    maingrp.add_argument("--verify", dest="verify", action="store_true",
-                         help="run commands to verify system integrity")
+    maingrp.add_argument("--sysck", dest="system_checks", action="store_true",
+                         help="run commands for system checks and commit output")
+    maingrp.add_argument("--scan", dest="system_scans", action="store_true",
+                         help="run commands for scanning system, prints and commits output")
     maingrp.add_argument("--diff", dest="diff", action="store_true",
                          help="show git diff --color-words")
     maingrp.add_argument("--log", dest="log", action="store_true",
@@ -106,14 +106,19 @@ class Config:
                 "write": "./jobs/example job %Y-%m-%d %H:%M.log (supports strftime format codes) or null"
             }
         }
-        self.status_checks = {
+        self.system_checks = {
             "ip_rules_v4": "sudo cat /etc/iptables/rules.v4",
             "ip_rules_v6": "sudo cat /etc/iptables/rules.v6",
+            "packages": "sudo apt list --installed",
             "SMART-sda": "sudo smartctl -a /dev/sda",
             "SMART-sdb": "sudo smartctl -a /dev/sdb",
         }
-        self.system_integrity = {
-            "debsums": "sudo debsums -ac"
+        self.system_scans = {
+            "aide": "sudo aide.wrapper --update",
+            "chkrootkit": "sudo chkrootkit",
+            "debsums": "sudo debsums -ac",
+            "lynis": "sudo lynis audit system",
+            "rkhunter": "sudo rkhunter --check --skip-keypress",
         }
         self.tracked_paths = [
             "/etc",
@@ -133,6 +138,19 @@ class Config:
                     json.dump(vars(self), json_file, indent=2, separators=(',', ': '), sort_keys=True, ensure_ascii=False)
             except Exception:
                 print("Error: Could not write config file to " + config_path)
+
+
+def os_stat_tracked_files(config: "Config") -> None:
+    stat = {}
+    for tracked_path in config.tracked_paths:
+        for root, dirs, files in os.walk(tracked_path):
+            for file in files:
+                file_path = os.path.join(root, file)
+                if os.path.exists(os.path.expanduser("~/.baka") + file_path):
+                    file_stat = os.stat(file_path)
+                    stat[file_path] = {"mode": oct(file_stat.st_mode)[2:], "uid": file_stat.st_uid, "gid": file_stat.st_gid}
+    with open(os.path.expanduser("~/.baka/stat.json"), "w", encoding="utf-8", errors="surrogateescape") as json_file:
+        json.dump(stat, json_file, indent=2, separators=(',', ': '), sort_keys=True, ensure_ascii=False)
 
 
 def rsync_and_git_add_all(config: "Config") -> list:
@@ -185,6 +203,8 @@ def main() -> int:
             ["git", "config", "user.email", "baka@" + os.uname().nodename],
             ["bash", "-c", "echo '"
                 "history.log\n"
+                "docker/**\n"
+                "ignore/**\n"
                 "*~\n"
                 "*-old\n"
                 "*.cache\n"
@@ -199,6 +219,12 @@ def main() -> int:
             ["nano", os.path.expanduser("~/.baka/.gitignore")],
             ["bash", "-c", "read -p 'Press enter to add files to repository'"],
             *rsync_and_git_add_all(config),
+            ["mkdir", "-p", "docker"],
+            ["mkdir", "-p", "ignore"],
+            ["mkdir", "-p", "scripts"],
+            ["mkdir", "-p", "syscks"],
+            ["mkdir", "-p", "scans"],
+            ["touch", "error.log"],
             ["git", "commit", "-m", "baka initial commit"]
         ]
     elif args.commit:
@@ -274,27 +300,25 @@ def main() -> int:
                                        "exit_non_zero" in config.jobs[job] and config.jobs[job]["exit_non_zero"],
                                        job)] for job in config.jobs]
         ]
-    elif args.status:
-        assert ("history" not in config.status_checks)
-        assert all([key not in config.system_integrity for key in config.status_checks])
+    elif args.system_checks:
+        assert ("history" not in config.system_checks)
+        assert all([key not in config.system_scans for key in config.system_checks])
         cmds = [
             *rsync_and_git_add_all(config),
-            ["git", "commit", "-m", "baka pre-status"],
-            ["mkdir", "-p", "status"],
-            *[["bash", "-c", "%s > status/%s.log" % (config.status_checks[key], key)] for key in config.status_checks],
+            ["git", "commit", "-m", "baka pre-sysck"],
+            *[["bash", "-c", "%s > syscks/%s.log" % (config.system_checks[key], key)] for key in config.system_checks],
             ["git", "add", "--ignore-errors", "--all"],
-            ["git", "commit", "-m", "baka status"]
+            ["git", "commit", "-m", "baka sysck"]
         ]
-    elif args.verify:
-        assert ("history" not in config.system_integrity)
-        assert all([key not in config.status_checks for key in config.system_integrity])
+    elif args.system_scans:
+        assert ("history" not in config.system_scans)
+        assert all([key not in config.system_checks for key in config.system_scans])
         cmds = [
             *rsync_and_git_add_all(config),
-            ["git", "commit", "-m", "baka pre-verify"],
-            ["mkdir", "-p", "verify"],
-            *[["bash", "-c", "%s | tee verify/%s.log" % (config.system_integrity[key], key)] for key in config.system_integrity],
+            ["git", "commit", "-m", "baka pre-scan"],
+            *[["bash", "-c", "%s | tee scans/%s.log" % (config.system_scans[key], key)] for key in config.system_scans],
             ["git", "add", "--ignore-errors", "--all"],
-            ["git", "commit", "-m", "baka verify"]
+            ["git", "commit", "-m", "baka scan"]
         ]
     elif args.diff:
         cmds = [
@@ -386,6 +410,7 @@ def main() -> int:
                     for line in proc.stderr.splitlines():
                         if line and "Permission denied (13)" not in line and "(see previous errors) (code 23)" not in line:
                             print(line)
+                    os_stat_tracked_files(config)
                 else:
                     # run command normally
                     proc = subprocess.run(cmd)
