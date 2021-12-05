@@ -16,6 +16,7 @@
 import argparse
 import datetime
 import email
+import email.mime.text
 import json
 import os
 import shlex
@@ -24,7 +25,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "0.6.4"
+VERSION = "0.6.5"
 
 
 def init_parser() -> argparse.ArgumentParser:
@@ -84,6 +85,7 @@ class Config:
         self.email = {
             "cc": None,
             "from": "myemail@domain.com",
+            "html": True,
             "smtp_server": "smtp.domain.com",
             "smtp_port": 587,
             "smtp_username": "username",
@@ -169,6 +171,8 @@ def send_email(config_email: dict, job_email: dict, body: str) -> int:
     if config_email["cc"]:
         message["Cc"] = config_email["cc"]
     message["Subject"] = job_email["subject"]
+    if config_email["html"]:
+        body = email.mime.text.MIMEText("<pre>" + body + "</pre>", "html")
     message.set_content(body)
     with smtplib.SMTP(config_email["smtp_server"], int(config_email["smtp_port"])) as smtp_server_instance:
         smtp_server_instance.ehlo()
