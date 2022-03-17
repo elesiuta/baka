@@ -28,7 +28,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "0.6.7"
+VERSION = "0.6.8"
 
 
 def init_parser() -> argparse.ArgumentParser:
@@ -192,12 +192,16 @@ def copy_conditional_paths(config: "Config") -> None:
                             continue
                         with open(file_path, "r", encoding="utf-8") as f:
                             _ = f.read(1)
+                        if os.path.exists(os.path.expanduser("~/.baka") + file_path) and not os.path.islink(os.path.expanduser("~/.baka") + file_path):
+                            os.chmod(os.path.expanduser("~/.baka") + file_path, 0o200)
+                        shutil.copy2(file_path, os.path.expanduser("~/.baka") + file_path, follow_symlinks=False)
                     except Exception:
-                        continue
-                    shutil.copy2(file_path, os.path.expanduser("~/.baka") + file_path)
+                        pass
             for root, dirs, files in os.walk(os.path.expanduser("~/.baka") + tracked_path):
                 for file in files:
                     if not os.path.exists("/" + os.path.relpath(os.path.join(root, file), os.path.expanduser("~/.baka"))):
+                        if not os.path.islink(os.path.join(root, file)):
+                            os.chmod(os.path.join(root, file), 0o200)
                         os.removedirs(os.path.join(root, file))
 
 
