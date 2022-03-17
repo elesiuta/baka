@@ -1,7 +1,7 @@
 # baka
 This is mostly just a wrapper for some git and rsync commands I made to help with managing my home server  
-If you're looking for something similar but not stupid, see [etckeeper](https://wiki.archlinux.org/title/Etckeeper), or other [alternatives](https://wiki.archlinux.org/title/Dotfiles)  
-Otherwise, you can install with `pip install bakabakabaka`  
+If you're looking for something similar but not stupid, see [etckeeper](https://wiki.archlinux.org/title/Etckeeper) or other [alternatives](https://wiki.archlinux.org/title/Dotfiles)  
+You can install from [PyPI](https://pypi.org/project/bakabakabaka/) with `pip install bakabakabaka`  
 ```
 usage: baka [--dry-run] <argument>
 
@@ -26,5 +26,5 @@ optional arguments:
   --log          show pretty git log
   --show         show most recent commit
   -i             force job to run in interactive mode
-  -n, --dry-run  print system commands instead of executing them
+  -n, --dry-run  print commands instead of executing them
 ```

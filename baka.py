@@ -28,7 +28,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "0.6.9"
+VERSION = "0.7.0"
 
 
 def init_parser() -> argparse.ArgumentParser:
@@ -71,7 +71,7 @@ def init_parser() -> argparse.ArgumentParser:
     parser.add_argument("-i", dest="interactive", action="store_true",
                         help="force job to run in interactive mode")
     parser.add_argument("-n", "--dry-run", dest="dry_run", action="store_true",
-                        help="print system commands instead of executing them")
+                        help="print commands instead of executing them")
     return parser
 
 
@@ -206,7 +206,9 @@ def copy_conditional_paths(config: "Config") -> None:
 
 
 def rsync_and_git_add_all(config: "Config") -> list:
-    cmds = [[sys.executable, os.path.abspath(__file__), "--_copy_conditional_paths"]]
+    cmds = []
+    if any(config.tracked_paths[tracked_path] for tracked_path in config.tracked_paths):
+        cmds.append([sys.executable, os.path.abspath(__file__), "--_copy_conditional_paths"])
     for tracked_path in config.tracked_paths:
         if not config.tracked_paths[tracked_path]:
             if not os.path.exists(os.path.dirname(os.path.expanduser("~/.baka") + tracked_path)):
