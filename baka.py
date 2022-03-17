@@ -22,12 +22,13 @@ import email.mime.text
 import json
 import os
 import shlex
+import shutil
 import smtplib
 import subprocess
 import sys
 import time
 
-VERSION = "0.6.6"
+VERSION = "0.6.7"
 
 
 def init_parser() -> argparse.ArgumentParser:
@@ -35,6 +36,8 @@ def init_parser() -> argparse.ArgumentParser:
                                      usage="%(prog)s [--dry-run] <argument>")
     parser.add_argument("--version", action="version", version=VERSION)
     maingrp = parser.add_mutually_exclusive_group()
+    maingrp.add_argument("--_copy_conditional_paths", dest="copy_conditional_paths", action="store_true",
+                         help=argparse.SUPPRESS)
     maingrp.add_argument("--init", dest="init", action="store_true",
                          help="open config, init git repo, add files then commit")
     maingrp.add_argument("--commit", dest="commit", type=str, metavar="msg",
@@ -66,7 +69,7 @@ def init_parser() -> argparse.ArgumentParser:
     maingrp.add_argument("--show", dest="show", action="store_true",
                          help="show most recent commit")
     parser.add_argument("-i", dest="interactive", action="store_true",
-                         help="force job to run in interactive mode")
+                        help="force job to run in interactive mode")
     parser.add_argument("-n", "--dry-run", dest="dry_run", action="store_true",
                         help="print system commands instead of executing them")
     return parser
@@ -168,12 +171,9 @@ def os_stat_tracked_files(config: "Config") -> None:
         json.dump(stat, json_file, indent=2, separators=(',', ': '), sort_keys=True, ensure_ascii=False)
 
 
-def rsync_and_git_add_all(config: "Config") -> list:
-    all_paths = []
-    conditional_paths = []
+def copy_conditional_paths(config: "Config") -> None:
     for tracked_path in config.tracked_paths:
         if config.tracked_paths[tracked_path]:
-            conditional_paths.append(tracked_path)
             conditions = {"file_starts_with": "", "path_starts_with": "", "max_depth": None, "max_size": None}
             for condition in config.tracked_paths[tracked_path]:
                 conditions[condition] = config.tracked_paths[tracked_path][condition]
@@ -185,27 +185,30 @@ def rsync_and_git_add_all(config: "Config") -> list:
                     if conditions["path_starts_with"] and not os.path.relpath(file_path, tracked_path).startswith(conditions["path_starts_with"]):
                         continue
                     if conditions["max_depth"] and os.path.relpath(file_path, tracked_path).count("/") >= conditions["max_depth"]:
+                        del dirs
                         break
                     try:
                         if conditions["max_size"] and os.stat(file_path).st_size > conditions["max_size"]:
                             continue
                         with open(file_path, "r", encoding="utf-8") as f:
-                            _ = f.read()
+                            _ = f.read(1)
                     except Exception:
                         continue
-                    all_paths.append(file_path)
-        else:
-            all_paths.append(tracked_path)
-    for path in all_paths:
-        if not os.path.exists(os.path.dirname(os.path.expanduser("~/.baka") + path)):
-            os.makedirs(os.path.dirname(os.path.expanduser("~/.baka") + path))
-    cmds = [["rsync", "-rlpt", "--delete", path, os.path.dirname(os.path.expanduser("~/.baka") + path)] for path in all_paths]
-    for tracked_path in conditional_paths:
-        for root, dirs, files in os.walk(os.path.expanduser("~/.baka") + tracked_path):
-            for file in files:
-                if not os.path.exists("/" + os.path.relpath(os.path.join(root, file), os.path.expanduser("~/.baka"))):
-                    cmds += [["rm", os.path.join(root, file)]]
-    cmds += [["git", "add", "--ignore-errors", "--all"]]
+                    shutil.copy2(file_path, os.path.expanduser("~/.baka") + file_path)
+            for root, dirs, files in os.walk(os.path.expanduser("~/.baka") + tracked_path):
+                for file in files:
+                    if not os.path.exists("/" + os.path.relpath(os.path.join(root, file), os.path.expanduser("~/.baka"))):
+                        os.removedirs(os.path.join(root, file))
+
+
+def rsync_and_git_add_all(config: "Config") -> list:
+    cmds = [[sys.executable, os.path.abspath(__file__), "--_copy_conditional_paths"]]
+    for tracked_path in config.tracked_paths:
+        if not config.tracked_paths[tracked_path]:
+            if not os.path.exists(os.path.dirname(os.path.expanduser("~/.baka") + tracked_path)):
+                os.makedirs(os.path.dirname(os.path.expanduser("~/.baka") + tracked_path))
+            cmds.append(["rsync", "-rlpt", "--delete", tracked_path, os.path.dirname(os.path.expanduser("~/.baka") + tracked_path)])
+    cmds.append(["git", "add", "--ignore-errors", "--all"])
     return cmds
 
 
@@ -237,7 +240,10 @@ def main() -> int:
     original_cwd = os.getcwd()
     os.chdir(os.path.expanduser("~/.baka"))
     # select commands
-    if args.init:
+    if args.copy_conditional_paths:
+        copy_conditional_paths(config)
+        return 0
+    elif args.init:
         # option to edit then reload config
         _ = input("Press enter to open your config file with nano")
         if args.dry_run:
