@@ -7,7 +7,7 @@ with open("README.md", "r") as f:
 setuptools.setup(
     name="bakabakabaka",
     version=baka.VERSION,
-    description="Baka Admin's Kludge Assistant",
+    description="the stupid configuration tracker using the stupid content tracker",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/elesiuta/baka",

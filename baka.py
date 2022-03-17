@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
@@ -25,11 +27,11 @@ import subprocess
 import sys
 import time
 
-VERSION = "0.6.5"
+VERSION = "0.6.6"
 
 
 def init_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Baka Admin's Kludge Assistant",
+    parser = argparse.ArgumentParser(description="the stupid configuration tracker using the stupid content tracker",
                                      usage="%(prog)s [--dry-run] <argument>")
     parser.add_argument("--version", action="version", version=VERSION)
     maingrp = parser.add_mutually_exclusive_group()
@@ -112,8 +114,11 @@ class Config:
             "ip_rules_v4": "sudo cat /etc/iptables/rules.v4",
             "ip_rules_v6": "sudo cat /etc/iptables/rules.v6",
             "packages": "sudo apt list --installed",
+            "pip": "pip3 list --user",
             "SMART-sda": "sudo smartctl -a /dev/sda",
             "SMART-sdb": "sudo smartctl -a /dev/sdb",
+            "ss": "sudo ss -lntu | awk 'NR<2{print $0;next}{print $0| \"sort -k5\"}'",
+            "ufw": "sudo ufw status verbose",
         }
         self.system_scans = {
             "aide": "sudo aide.wrapper --update",
@@ -122,15 +127,17 @@ class Config:
             "lynis": "sudo lynis audit system",
             "rkhunter": "sudo rkhunter --check --skip-keypress",
         }
-        self.tracked_paths = [
-            "/etc",
-            os.path.expanduser("~/.config"),
-            os.path.expanduser("~/.local/share")
-        ]
+        self.tracked_paths = {
+            "/etc": {"max_size": 128000},
+            os.path.expanduser("~/.config"): {"max_depth": 2, "max_size": 128000},
+            os.path.expanduser("~/.local/share"): {"max_depth": 2, "max_size": 128000},
+        }
         # load config
         for key in config:
             if config[key] is not None and hasattr(self, key):
                 self.__setattr__(key, config[key])
+        for tracked_path in self.tracked_paths:
+            assert os.path.isabs(tracked_path)
         # write config file if does not exist
         if not os.path.exists(config_path):
             if not os.path.isdir(os.path.dirname(config_path)):
@@ -144,22 +151,60 @@ class Config:
 
 def os_stat_tracked_files(config: "Config") -> None:
     stat = {}
-    for tracked_path in config.tracked_paths:
-        for root, dirs, files in os.walk(tracked_path):
-            for file in files:
-                file_path = os.path.join(root, file)
-                if os.path.exists(os.path.expanduser("~/.baka") + file_path):
-                    file_stat = os.stat(file_path)
-                    stat[file_path] = {"mode": oct(file_stat.st_mode)[2:], "uid": file_stat.st_uid, "gid": file_stat.st_gid}
+    for tracked_path in list(config.tracked_paths):
+        if os.path.isdir(tracked_path):
+            for root, dirs, files in os.walk(tracked_path):
+                for file_or_folder in files + dirs:
+                    file_path = os.path.join(root, file_or_folder)
+                    if os.path.exists(os.path.expanduser("~/.baka") + file_path):
+                        file_stat = os.stat(file_path)
+                        stat[file_path] = {"mode": oct(file_stat.st_mode), "uid": file_stat.st_uid, "gid": file_stat.st_gid}
+        elif os.path.isfile(tracked_path):
+            file_path = tracked_path
+            if os.path.exists(os.path.expanduser("~/.baka") + file_path):
+                file_stat = os.stat(file_path)
+                stat[file_path] = {"mode": oct(file_stat.st_mode), "uid": file_stat.st_uid, "gid": file_stat.st_gid}
     with open(os.path.expanduser("~/.baka/stat.json"), "w", encoding="utf-8", errors="surrogateescape") as json_file:
         json.dump(stat, json_file, indent=2, separators=(',', ': '), sort_keys=True, ensure_ascii=False)
 
 
 def rsync_and_git_add_all(config: "Config") -> list:
-    for path in config.tracked_paths:
+    all_paths = []
+    conditional_paths = []
+    for tracked_path in config.tracked_paths:
+        if config.tracked_paths[tracked_path]:
+            conditional_paths.append(tracked_path)
+            conditions = {"file_starts_with": "", "path_starts_with": "", "max_depth": None, "max_size": None}
+            for condition in config.tracked_paths[tracked_path]:
+                conditions[condition] = config.tracked_paths[tracked_path][condition]
+            for root, dirs, files in os.walk(tracked_path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    if conditions["file_starts_with"] and not file.startswith(conditions["file_starts_with"]):
+                        continue
+                    if conditions["path_starts_with"] and not os.path.relpath(file_path, tracked_path).startswith(conditions["path_starts_with"]):
+                        continue
+                    if conditions["max_depth"] and os.path.relpath(file_path, tracked_path).count("/") >= conditions["max_depth"]:
+                        break
+                    try:
+                        if conditions["max_size"] and os.stat(file_path).st_size > conditions["max_size"]:
+                            continue
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            _ = f.read()
+                    except Exception:
+                        continue
+                    all_paths.append(file_path)
+        else:
+            all_paths.append(tracked_path)
+    for path in all_paths:
         if not os.path.exists(os.path.dirname(os.path.expanduser("~/.baka") + path)):
             os.makedirs(os.path.dirname(os.path.expanduser("~/.baka") + path))
-    cmds = [["rsync", "-rlpt", "--delete", path, os.path.dirname(os.path.expanduser("~/.baka") + path)] for path in config.tracked_paths]
+    cmds = [["rsync", "-rlpt", "--delete", path, os.path.dirname(os.path.expanduser("~/.baka") + path)] for path in all_paths]
+    for tracked_path in conditional_paths:
+        for root, dirs, files in os.walk(os.path.expanduser("~/.baka") + tracked_path):
+            for file in files:
+                if not os.path.exists("/" + os.path.relpath(os.path.join(root, file), os.path.expanduser("~/.baka"))):
+                    cmds += [["rm", os.path.join(root, file)]]
     cmds += [["git", "add", "--ignore-errors", "--all"]]
     return cmds
 
@@ -205,6 +250,7 @@ def main() -> int:
             ["git", "init"],
             ["git", "config", "user.name", "baka admin"],
             ["git", "config", "user.email", "baka@" + os.uname().nodename],
+            ["touch", "error.log"],
             ["bash", "-c", "echo '"
                 "history.log\n"
                 "docker/**\n"
@@ -228,7 +274,6 @@ def main() -> int:
             ["mkdir", "-p", "scripts"],
             ["mkdir", "-p", "syscks"],
             ["mkdir", "-p", "scans"],
-            ["touch", "error.log"],
             ["git", "commit", "-m", "baka initial commit"]
         ]
     elif args.commit:
@@ -343,6 +388,7 @@ def main() -> int:
     # execute commands
     command_output = []
     error_message = ""
+    pending_stat = False
     return_code = 0
     try:
         for cmd in cmds:
@@ -413,10 +459,13 @@ def main() -> int:
                     proc = subprocess.run(cmd, stderr=subprocess.PIPE, universal_newlines=True)
                     for line in proc.stderr.splitlines():
                         if line and "Permission denied (13)" not in line and "(see previous errors) (code 23)" not in line:
-                            print(line)
-                    os_stat_tracked_files(config)
+                            print(line, file=sys.stderr)
+                    pending_stat = True
                 else:
                     # run command normally
+                    if pending_stat:
+                        os_stat_tracked_files(config)
+                        pending_stat = False
                     proc = subprocess.run(cmd)
                     if proc.returncode != 0 and not (cmd[0] == "git" and cmd[1] == "commit"):
                         return_code += 1

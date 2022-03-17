@@ -1,15 +1,11 @@
 # baka
-the stupid configuration tracker using the stupid content tracker  
-```
-pip install bakabakabaka
-```
-  
-I made this to help with monitoring logs, performing common actions, and tracking changes I make to my home server  
-This is mostly just a wrapper for some rsync and git commands, if you're looking for something similar but with more features, see [etckeeper](https://wiki.archlinux.org/title/Etckeeper), or other alternatives [here](https://wiki.archlinux.org/title/Dotfiles)  
+This is mostly just a wrapper for some git and rsync commands I made to help with managing my home server  
+If you're looking for something similar but not stupid, see [etckeeper](https://wiki.archlinux.org/title/Etckeeper), or other [alternatives](https://wiki.archlinux.org/title/Dotfiles)  
+Otherwise, you can install with `pip install bakabakabaka`  
 ```
 usage: baka [--dry-run] <argument>
 
-Baka Admin's Kludge Assistant
+the stupid configuration tracker using the stupid content tracker
 
 optional arguments:
   -h, --help     show this help message and exit
