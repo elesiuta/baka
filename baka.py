@@ -28,7 +28,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "0.6.8"
+VERSION = "0.6.9"
 
 
 def init_parser() -> argparse.ArgumentParser:
@@ -188,7 +188,7 @@ def copy_conditional_paths(config: "Config") -> None:
                         del dirs
                         break
                     try:
-                        if conditions["max_size"] and os.stat(file_path).st_size > conditions["max_size"]:
+                        if conditions["max_size"] and not os.path.islink(file_path) and os.stat(file_path).st_size > conditions["max_size"]:
                             continue
                         with open(file_path, "r", encoding="utf-8") as f:
                             _ = f.read(1)
