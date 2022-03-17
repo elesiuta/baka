@@ -28,7 +28,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "0.7.0"
+VERSION = "0.7.1"
 
 
 def init_parser() -> argparse.ArgumentParser:
@@ -178,6 +178,10 @@ def copy_conditional_paths(config: "Config") -> None:
             for condition in config.tracked_paths[tracked_path]:
                 conditions[condition] = config.tracked_paths[tracked_path][condition]
             for root, dirs, files in os.walk(tracked_path):
+                if root.startswith(os.path.expanduser("~/.baka")):
+                    del dirs
+                    del files
+                    continue
                 for file in files:
                     file_path = os.path.join(root, file)
                     if conditions["file_starts_with"] and not file.startswith(conditions["file_starts_with"]):
@@ -192,9 +196,12 @@ def copy_conditional_paths(config: "Config") -> None:
                             continue
                         with open(file_path, "r", encoding="utf-8") as f:
                             _ = f.read(1)
-                        if os.path.exists(os.path.expanduser("~/.baka") + file_path) and not os.path.islink(os.path.expanduser("~/.baka") + file_path):
-                            os.chmod(os.path.expanduser("~/.baka") + file_path, 0o200)
-                        shutil.copy2(file_path, os.path.expanduser("~/.baka") + file_path, follow_symlinks=False)
+                        copy_path = os.path.expanduser("~/.baka") + file_path
+                        if os.path.exists(copy_path) and not os.path.islink(copy_path):
+                            os.chmod(copy_path, 0o200)
+                        elif not os.path.isdir(os.path.dirname(copy_path)):
+                            os.makedirs(os.path.dirname(copy_path))
+                        shutil.copy2(file_path, copy_path, follow_symlinks=False)
                     except Exception:
                         pass
             for root, dirs, files in os.walk(os.path.expanduser("~/.baka") + tracked_path):
@@ -211,6 +218,7 @@ def rsync_and_git_add_all(config: "Config") -> list:
         cmds.append([sys.executable, os.path.abspath(__file__), "--_copy_conditional_paths"])
     for tracked_path in config.tracked_paths:
         if not config.tracked_paths[tracked_path]:
+            assert not (tracked_path.startswith(os.path.expanduser("~/.baka")) or os.path.expanduser("~/.baka").startswith(tracked_path)), "directory recursion"
             if not os.path.exists(os.path.dirname(os.path.expanduser("~/.baka") + tracked_path)):
                 os.makedirs(os.path.dirname(os.path.expanduser("~/.baka") + tracked_path))
             cmds.append(["rsync", "-rlpt", "--delete", tracked_path, os.path.dirname(os.path.expanduser("~/.baka") + tracked_path)])
@@ -475,7 +483,9 @@ def main() -> int:
                     pending_stat = True
                 else:
                     # run command normally
-                    if pending_stat:
+                    if cmd == [sys.executable, os.path.abspath(__file__), "--_copy_conditional_paths"]:
+                        pending_stat = True
+                    elif pending_stat:
                         os_stat_tracked_files(config)
                         pending_stat = False
                     proc = subprocess.run(cmd)
