@@ -28,7 +28,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "0.7.1"
+VERSION = "0.7.2"
 
 
 def init_parser() -> argparse.ArgumentParser:
@@ -130,11 +130,13 @@ class Config:
             "lynis": "sudo lynis audit system",
             "rkhunter": "sudo rkhunter --check --skip-keypress",
         }
-        self.tracked_paths = {
+        self.tracked_paths = {k: v for k, v in {
             "/etc": {"max_size": 128000},
+            os.path.expanduser("~"): {"max_depth": 2, "max_size": 128000, "path_starts_with": ".", "exclude": [".ssh"]},
             os.path.expanduser("~/.config"): {"max_depth": 2, "max_size": 128000},
-            os.path.expanduser("~/.local/share"): {"max_depth": 2, "max_size": 128000},
-        }
+            os.path.expanduser("~/.kde/share"): {"max_depth": 3, "max_size": 128000},
+            os.path.expanduser("~/.local/share"): {"max_depth": 3, "max_size": 128000},
+        }.items() if os.path.exists(k)}
         # load config
         for key in config:
             if config[key] is not None and hasattr(self, key):
@@ -145,11 +147,8 @@ class Config:
         if not os.path.exists(config_path):
             if not os.path.isdir(os.path.dirname(config_path)):
                 os.makedirs(os.path.dirname(config_path))
-            try:
-                with open(config_path, "w", encoding="utf-8", errors="surrogateescape") as json_file:
-                    json.dump(vars(self), json_file, indent=2, separators=(',', ': '), sort_keys=True, ensure_ascii=False)
-            except Exception:
-                print("Error: Could not write config file to " + config_path)
+            with open(config_path, "w", encoding="utf-8", errors="surrogateescape") as json_file:
+                json.dump(vars(self), json_file, indent=2, separators=(',', ': '), sort_keys=True, ensure_ascii=False)
 
 
 def os_stat_tracked_files(config: "Config") -> None:
@@ -174,25 +173,31 @@ def os_stat_tracked_files(config: "Config") -> None:
 def copy_conditional_paths(config: "Config") -> None:
     for tracked_path in config.tracked_paths:
         if config.tracked_paths[tracked_path]:
-            conditions = {"file_starts_with": "", "path_starts_with": "", "max_depth": None, "max_size": None}
+            conditions = {"exclude": [], "file_starts_with": "", "path_starts_with": "", "max_depth": None, "max_size": None}
             for condition in config.tracked_paths[tracked_path]:
                 conditions[condition] = config.tracked_paths[tracked_path][condition]
             for root, dirs, files in os.walk(tracked_path):
                 if root.startswith(os.path.expanduser("~/.baka")):
                     del dirs
-                    del files
+                    continue
+                if conditions["path_starts_with"] and not (os.path.relpath(root, tracked_path).startswith(conditions["path_starts_with"]) or conditions["path_starts_with"].startswith(os.path.relpath(root, tracked_path))):
+                    del dirs
                     continue
                 for file in files:
                     file_path = os.path.join(root, file)
-                    if conditions["file_starts_with"] and not file.startswith(conditions["file_starts_with"]):
-                        continue
-                    if conditions["path_starts_with"] and not os.path.relpath(file_path, tracked_path).startswith(conditions["path_starts_with"]):
-                        continue
                     if conditions["max_depth"] and os.path.relpath(file_path, tracked_path).count("/") >= conditions["max_depth"]:
                         del dirs
                         break
+                    if conditions["exclude"] and any(file.startswith(e) or file_path.startswith(e) for e in conditions["exclude"]):
+                        continue
+                    if conditions["file_starts_with"] and not file.startswith(conditions["file_starts_with"]):
+                        continue
+                    if conditions["path_starts_with"] and not file.startswith(conditions["path_starts_with"]) and root == tracked_path:
+                        continue
                     try:
                         if conditions["max_size"] and not os.path.islink(file_path) and os.stat(file_path).st_size > conditions["max_size"]:
+                            continue
+                        if not os.path.isfile(file_path):
                             continue
                         with open(file_path, "r", encoding="utf-8") as f:
                             _ = f.read(1)

@@ -11,6 +11,7 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/elesiuta/baka",
+    license="GPLv3",
     py_modules=["baka"],
     entry_points={"console_scripts": ["baka = baka:main"]},
     classifiers=[
