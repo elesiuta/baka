@@ -177,22 +177,24 @@ def copy_conditional_paths(config: "Config") -> None:
             for condition in config.tracked_paths[tracked_path]:
                 conditions[condition] = config.tracked_paths[tracked_path][condition]
             for root, dirs, files in os.walk(tracked_path):
+                relpath = os.path.relpath(root, tracked_path)
                 if root.startswith(os.path.expanduser("~/.baka")):
                     del dirs
                     continue
-                if conditions["path_starts_with"] and not (os.path.relpath(root, tracked_path).startswith(conditions["path_starts_with"]) or conditions["path_starts_with"].startswith(os.path.relpath(root, tracked_path))):
+                if conditions["path_starts_with"] and not (relpath.startswith(conditions["path_starts_with"]) or conditions["path_starts_with"].startswith(relpath)):
                     del dirs
                     continue
                 for file in files:
                     file_path = os.path.join(root, file)
-                    if conditions["max_depth"] and os.path.relpath(file_path, tracked_path).count("/") >= conditions["max_depth"]:
+                    file_relpath = os.path.join(relpath, file)
+                    if conditions["max_depth"] and file_relpath.count("/") >= conditions["max_depth"]:
                         del dirs
                         break
                     if conditions["exclude"] and any(file.startswith(e) or file_path.startswith(e) for e in conditions["exclude"]):
                         continue
                     if conditions["file_starts_with"] and not file.startswith(conditions["file_starts_with"]):
                         continue
-                    if conditions["path_starts_with"] and not file.startswith(conditions["path_starts_with"]) and root == tracked_path:
+                    if conditions["path_starts_with"] and not file_relpath.startswith(conditions["path_starts_with"]):
                         continue
                     try:
                         if conditions["max_size"] and not os.path.islink(file_path) and os.stat(file_path).st_size > conditions["max_size"]:
