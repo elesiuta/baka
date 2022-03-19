@@ -28,7 +28,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "0.7.2"
+VERSION = "0.7.4"
 
 
 def init_parser() -> argparse.ArgumentParser:
