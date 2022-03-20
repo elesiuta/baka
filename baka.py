@@ -28,7 +28,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "0.7.4"
+VERSION = "0.7.5"
 
 
 def init_parser() -> argparse.ArgumentParser:
@@ -133,9 +133,9 @@ class Config:
         self.tracked_paths = {k: v for k, v in {
             "/etc": {"max_size": 128000},
             os.path.expanduser("~"): {"max_depth": 2, "max_size": 128000, "path_starts_with": ".", "exclude": [".ssh"]},
-            os.path.expanduser("~/.config"): {"max_depth": 2, "max_size": 128000},
+            os.path.expanduser("~/.config"): {"max_depth": 2, "max_size": 128000, "exclude": ["log", "Local State", "TransportSecurity"]},
             os.path.expanduser("~/.kde/share"): {"max_depth": 3, "max_size": 128000},
-            os.path.expanduser("~/.local/share"): {"max_depth": 3, "max_size": 128000},
+            os.path.expanduser("~/.local/share"): {"max_depth": 3, "max_size": 128000, "exclude": ["application_state"]},
         }.items() if os.path.exists(k)}
         # load config
         for key in config:
@@ -186,11 +186,11 @@ def copy_conditional_paths(config: "Config") -> None:
                     continue
                 for file in files:
                     file_path = os.path.join(root, file)
-                    file_relpath = os.path.join(relpath, file)
+                    file_relpath = os.path.relpath(file_path, tracked_path)
                     if conditions["max_depth"] and file_relpath.count("/") >= conditions["max_depth"]:
                         del dirs
                         break
-                    if conditions["exclude"] and any(file.startswith(e) or file_path.startswith(e) for e in conditions["exclude"]):
+                    if conditions["exclude"] and any(e in file_relpath for e in conditions["exclude"]):
                         continue
                     if conditions["file_starts_with"] and not file.startswith(conditions["file_starts_with"]):
                         continue
