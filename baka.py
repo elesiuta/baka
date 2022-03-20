@@ -28,7 +28,8 @@ import subprocess
 import sys
 import time
 
-VERSION = "0.7.6"
+VERSION = "0.7.7"
+BASE_PATH = os.path.expanduser("~/.baka")
 
 
 def init_parser() -> argparse.ArgumentParser:
@@ -132,7 +133,7 @@ class Config:
             os.path.expanduser("~/.local/share"): {"max_depth": 3, "max_size": 128000, "exclude": ["application_state"]},
         }.items() if os.path.exists(k)}
         # read config file and set values, or write if it does not exist
-        config_path = os.path.expanduser("~/.baka/config.json")
+        config_path = os.path.join(BASE_PATH, "config.json")
         if os.path.exists(config_path):
             with open(config_path, "r", encoding="utf-8", errors="surrogateescape") as json_file:
                 config = json.load(json_file)
@@ -152,18 +153,18 @@ def os_stat_tracked_files(config: "Config") -> None:
     stat = {}
     for tracked_path in list(config.tracked_paths):
         if os.path.isdir(tracked_path):
-            for root, dirs, files in os.walk(os.path.expanduser("~/.baka") + tracked_path):
+            for root, dirs, files in os.walk(BASE_PATH + tracked_path):
                 for file_or_folder in files + dirs:
-                    file_path = "/" + os.path.relpath(os.path.join(root, file_or_folder), os.path.expanduser("~/.baka"))
+                    file_path = "/" + os.path.relpath(os.path.join(root, file_or_folder), BASE_PATH)
                     if os.path.exists(file_path):
                         file_stat = os.stat(file_path)
                         stat[file_path] = {"mode": oct(file_stat.st_mode), "uid": file_stat.st_uid, "gid": file_stat.st_gid}
         elif os.path.isfile(tracked_path):
             file_path = tracked_path
-            if os.path.exists(os.path.expanduser("~/.baka") + file_path):
+            if os.path.exists(BASE_PATH + file_path):
                 file_stat = os.stat(file_path)
                 stat[file_path] = {"mode": oct(file_stat.st_mode), "uid": file_stat.st_uid, "gid": file_stat.st_gid}
-    with open(os.path.expanduser("~/.baka/stat.json"), "w", encoding="utf-8", errors="surrogateescape") as json_file:
+    with open(os.path.join(BASE_PATH, "stat.json"), "w", encoding="utf-8", errors="surrogateescape") as json_file:
         json.dump(stat, json_file, indent=2, separators=(',', ': '), sort_keys=True, ensure_ascii=False)
 
 
@@ -175,7 +176,7 @@ def copy_conditional_paths(config: "Config") -> None:
                 conditions[condition] = config.tracked_paths[tracked_path][condition]
             for root, dirs, files in os.walk(tracked_path):
                 relpath = os.path.relpath(root, tracked_path)
-                if root.startswith(os.path.expanduser("~/.baka")):
+                if root.startswith(BASE_PATH):
                     del dirs
                     continue
                 if conditions["path_starts_with"] and not (relpath.startswith(conditions["path_starts_with"]) or conditions["path_starts_with"].startswith(relpath)):
@@ -200,7 +201,7 @@ def copy_conditional_paths(config: "Config") -> None:
                             continue
                         with open(file_path, "r", encoding="utf-8") as f:
                             _ = f.read(1)
-                        copy_path = os.path.expanduser("~/.baka") + file_path
+                        copy_path = BASE_PATH + file_path
                         if os.path.exists(copy_path) and not os.path.islink(copy_path):
                             os.chmod(copy_path, 0o200)
                         elif not os.path.isdir(os.path.dirname(copy_path)):
@@ -208,9 +209,9 @@ def copy_conditional_paths(config: "Config") -> None:
                         shutil.copy2(file_path, copy_path, follow_symlinks=False)
                     except Exception:
                         pass
-            for root, dirs, files in os.walk(os.path.expanduser("~/.baka") + tracked_path):
+            for root, dirs, files in os.walk(BASE_PATH + tracked_path):
                 for file in files:
-                    if not os.path.exists("/" + os.path.relpath(os.path.join(root, file), os.path.expanduser("~/.baka"))):
+                    if not os.path.exists("/" + os.path.relpath(os.path.join(root, file), BASE_PATH)):
                         if not os.path.islink(os.path.join(root, file)):
                             os.chmod(os.path.join(root, file), 0o200)
                         os.remove(os.path.join(root, file))
@@ -222,10 +223,10 @@ def rsync_and_git_add_all(config: "Config") -> list:
         cmds.append([sys.executable, os.path.abspath(__file__), "--_copy_conditional_paths"])
     for tracked_path in config.tracked_paths:
         if not config.tracked_paths[tracked_path]:
-            assert not (tracked_path.startswith(os.path.expanduser("~/.baka")) or os.path.expanduser("~/.baka").startswith(tracked_path)), "directory recursion"
-            if not os.path.exists(os.path.dirname(os.path.expanduser("~/.baka") + tracked_path)):
-                os.makedirs(os.path.dirname(os.path.expanduser("~/.baka") + tracked_path))
-            cmds.append(["rsync", "-rlpt", "--delete", tracked_path, os.path.dirname(os.path.expanduser("~/.baka") + tracked_path)])
+            assert not (tracked_path.startswith(BASE_PATH) or BASE_PATH.startswith(tracked_path)), "directory recursion"
+            if not os.path.exists(os.path.dirname(BASE_PATH + tracked_path)):
+                os.makedirs(os.path.dirname(BASE_PATH + tracked_path))
+            cmds.append(["rsync", "-rlpt", "--delete", tracked_path, os.path.dirname(BASE_PATH + tracked_path)])
     cmds.append(["git", "add", "--ignore-errors", "--all"])
     return cmds
 
@@ -256,7 +257,7 @@ def main() -> int:
     config = Config()
     # change cwd to repo folder
     original_cwd = os.getcwd()
-    os.chdir(os.path.expanduser("~/.baka"))
+    os.chdir(BASE_PATH)
     # select commands
     if args.copy_conditional_paths:
         copy_conditional_paths(config)
@@ -265,9 +266,9 @@ def main() -> int:
         # option to edit then reload config
         _ = input("Press enter to open your config file with nano")
         if args.dry_run:
-            print(shlex.join(["nano", os.path.expanduser("~/.baka/config.json")]))
+            print(shlex.join(["nano", os.path.join(BASE_PATH, "config.json")]))
         else:
-            subprocess.run(["nano", os.path.expanduser("~/.baka/config.json")])
+            subprocess.run(["nano", os.path.join(BASE_PATH, "config.json")])
         config = Config()
         # git commands
         cmds = [
@@ -290,7 +291,7 @@ def main() -> int:
                 "**/xonsh-*.json\n"
             "' > .gitignore"],
             ["bash", "-c", "read -p 'Press enter to open .gitignore with nano'"],
-            ["nano", os.path.expanduser("~/.baka/.gitignore")],
+            ["nano", os.path.join(BASE_PATH, ".gitignore")],
             ["bash", "-c", "read -p 'Press enter to add files to repository'"],
             *rsync_and_git_add_all(config),
             ["mkdir", "-p", "docker"],
@@ -507,7 +508,7 @@ def main() -> int:
                 log_entry += " " + key + " " + str(vars(args)[key])
         if error_message:
             log_entry += " " + error_message
-        with open(os.path.expanduser("~/.baka/history.log"), "a", encoding="utf-8", errors="surrogateescape") as log_file:
+        with open(os.path.join(BASE_PATH, "history.log"), "a", encoding="utf-8", errors="surrogateescape") as log_file:
             log_file.write(log_entry + "\n")
     # email or write command output
     if args.job:
@@ -517,7 +518,7 @@ def main() -> int:
                 send_email(config.email, config.jobs[args.job]["email"], command_output)
             except Exception as e:
                 error_email = "--- %s ---\nEmail Error: %s %s\nMessage:\n%s" % (time.ctime(), type(e).__name__, e.args, command_output)
-                with open(os.path.expanduser("~/.baka/error.log"), "a", encoding="utf-8", errors="surrogateescape") as log_file:
+                with open(os.path.join(BASE_PATH, "error.log"), "a", encoding="utf-8", errors="surrogateescape") as log_file:
                     log_file.write(error_email + "\n")
         if "write" in config.jobs[args.job] and config.jobs[args.job]["write"]:
             file_path = os.path.abspath(datetime.datetime.now().strftime(config.jobs[args.job]["write"]))
