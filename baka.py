@@ -28,7 +28,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "0.7.5"
+VERSION = "0.7.6"
 
 
 def init_parser() -> argparse.ArgumentParser:
@@ -77,12 +77,6 @@ def init_parser() -> argparse.ArgumentParser:
 
 class Config:
     def __init__(self):
-        # read config file
-        config_path = os.path.expanduser("~/.baka/config.json")
-        config = {}
-        if os.path.exists(config_path):
-            with open(config_path, "r", encoding="utf-8", errors="surrogateescape") as json_file:
-                config = json.load(json_file)
         # default config
         self.cmd_install = ["sudo", "apt", "install"]
         self.cmd_remove = ["sudo", "apt", "autoremove", "--purge"]
@@ -137,14 +131,17 @@ class Config:
             os.path.expanduser("~/.kde/share"): {"max_depth": 3, "max_size": 128000},
             os.path.expanduser("~/.local/share"): {"max_depth": 3, "max_size": 128000, "exclude": ["application_state"]},
         }.items() if os.path.exists(k)}
-        # load config
-        for key in config:
-            if config[key] is not None and hasattr(self, key):
-                self.__setattr__(key, config[key])
-        for tracked_path in self.tracked_paths:
-            assert os.path.isabs(tracked_path)
-        # write config file if does not exist
-        if not os.path.exists(config_path):
+        # read config file and set values, or write if it does not exist
+        config_path = os.path.expanduser("~/.baka/config.json")
+        if os.path.exists(config_path):
+            with open(config_path, "r", encoding="utf-8", errors="surrogateescape") as json_file:
+                config = json.load(json_file)
+            for key in config:
+                if config[key] is not None and hasattr(self, key):
+                    self.__setattr__(key, config[key])
+            for tracked_path in self.tracked_paths:
+                assert os.path.isabs(tracked_path)
+        else:
             if not os.path.isdir(os.path.dirname(config_path)):
                 os.makedirs(os.path.dirname(config_path))
             with open(config_path, "w", encoding="utf-8", errors="surrogateescape") as json_file:
@@ -155,10 +152,10 @@ def os_stat_tracked_files(config: "Config") -> None:
     stat = {}
     for tracked_path in list(config.tracked_paths):
         if os.path.isdir(tracked_path):
-            for root, dirs, files in os.walk(tracked_path):
+            for root, dirs, files in os.walk(os.path.expanduser("~/.baka") + tracked_path):
                 for file_or_folder in files + dirs:
-                    file_path = os.path.join(root, file_or_folder)
-                    if os.path.exists(os.path.expanduser("~/.baka") + file_path):
+                    file_path = "/" + os.path.relpath(os.path.join(root, file_or_folder), os.path.expanduser("~/.baka"))
+                    if os.path.exists(file_path):
                         file_stat = os.stat(file_path)
                         stat[file_path] = {"mode": oct(file_stat.st_mode), "uid": file_stat.st_uid, "gid": file_stat.st_gid}
         elif os.path.isfile(tracked_path):
@@ -216,7 +213,7 @@ def copy_conditional_paths(config: "Config") -> None:
                     if not os.path.exists("/" + os.path.relpath(os.path.join(root, file), os.path.expanduser("~/.baka"))):
                         if not os.path.islink(os.path.join(root, file)):
                             os.chmod(os.path.join(root, file), 0o200)
-                        os.removedirs(os.path.join(root, file))
+                        os.remove(os.path.join(root, file))
 
 
 def rsync_and_git_add_all(config: "Config") -> list:
