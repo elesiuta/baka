@@ -24,6 +24,7 @@ import os
 import shlex
 import shutil
 import smtplib
+import socket
 import subprocess
 import sys
 import time
@@ -45,6 +46,8 @@ def init_parser() -> argparse.ArgumentParser:
                          help="git add and commit your changes to tracked files")
     maingrp.add_argument("--push", dest="push", action="store_true",
                          help="git push (caution, ensure remote is private)")
+    maingrp.add_argument("--pull", dest="pull", action="store_true",
+                         help="git pull (does not restore files over system)")
     maingrp.add_argument("--untrack", dest="untrack", nargs=argparse.REMAINDER,
                          help="untrack path(s) from git")
     maingrp.add_argument("--install", dest="install", nargs=argparse.REMAINDER,
@@ -55,12 +58,16 @@ def init_parser() -> argparse.ArgumentParser:
                          help="upgrade packages on system and commit changes")
     maingrp.add_argument("--docker", dest="docker", nargs=argparse.REMAINDER,
                          help="usage: --docker <up|down|pull> <all|names...>")
+    maingrp.add_argument("--podman", dest="podman", nargs=argparse.REMAINDER,
+                         help="usage: --podman <up|down|pull> <all|names...>")
+    maingrp.add_argument("--file", dest="file", nargs=argparse.REMAINDER,
+                         help="usage: --file <save|restore> <all|names...>")
     maingrp.add_argument("--job", dest="job", type=str, metavar="name",
                          help="run commands for job with name")
     maingrp.add_argument("--list", dest="list", action="store_true",
                          help="show list of jobs")
     maingrp.add_argument("--sysck", dest="system_checks", action="store_true",
-                         help="run commands for system checks and commit output")
+                         help="run commands for system checks and commits output")
     maingrp.add_argument("--scan", dest="system_scans", action="store_true",
                          help="run commands for scanning system, prints and commits output")
     maingrp.add_argument("--diff", dest="diff", action="store_true",
@@ -81,7 +88,7 @@ class Config:
         # default config
         self.cmd_install = ["sudo", "apt", "install"]
         self.cmd_remove = ["sudo", "apt", "autoremove", "--purge"]
-        self.cmd_upgrade = ["bash", "-c", "sudo apt update && sudo apt upgrade"]
+        self.cmd_upgrade = ["bash", "-c", "sudo apt update && sudo apt dist-upgrade"]
         self.email = {
             "cc": None,
             "from": "myemail@domain.com",
@@ -90,6 +97,14 @@ class Config:
             "smtp_port": 587,
             "smtp_username": "username",
             "smtp_password": "password"
+        }
+        self.files = {
+            "example_file_a": {
+                "src": "path/to/file",
+            },
+            "example_file_b": {
+                "cmd": ["echo", "command to generate file"],
+            }
         }
         self.jobs = {
             "example_job_name": {
@@ -147,6 +162,12 @@ class Config:
                 os.makedirs(os.path.dirname(config_path))
             with open(config_path, "w", encoding="utf-8", errors="surrogateescape") as json_file:
                 json.dump(vars(self), json_file, indent=2, separators=(',', ': '), sort_keys=True, ensure_ascii=False)
+        # get the system hostname, usually /etc/hostname but can override with .baka/hostname (not in config.json or committed)
+        if os.path.exists(os.path.join(BASE_PATH, "hostname")):
+            with open(os.path.join(BASE_PATH, "hostname"), "r") as f:
+                self.hostname = f.read().strip()
+        else:
+            self.hostname = socket.gethostname()
 
 
 def os_stat_tracked_files(config: "Config") -> None:
@@ -170,63 +191,61 @@ def os_stat_tracked_files(config: "Config") -> None:
 
 def copy_conditional_paths(config: "Config") -> None:
     for tracked_path in config.tracked_paths:
-        if config.tracked_paths[tracked_path]:
-            conditions = {"exclude": [], "file_starts_with": "", "path_starts_with": "", "max_depth": None, "max_size": None}
-            for condition in config.tracked_paths[tracked_path]:
-                conditions[condition] = config.tracked_paths[tracked_path][condition]
-            for root, dirs, files in os.walk(tracked_path):
-                relpath = os.path.relpath(root, tracked_path)
-                if root.startswith(BASE_PATH):
+        conditions = {"exclude": [], "file_starts_with": "", "path_starts_with": "", "max_depth": None, "max_size": None}
+        for condition in config.tracked_paths[tracked_path]:
+            conditions[condition] = config.tracked_paths[tracked_path][condition]
+        for root, dirs, files in os.walk(tracked_path):
+            relpath = os.path.relpath(root, tracked_path)
+            if root.startswith(BASE_PATH):
+                del dirs
+                continue
+            if conditions["path_starts_with"] and not (relpath.startswith(conditions["path_starts_with"]) or conditions["path_starts_with"].startswith(relpath)):
+                del dirs
+                continue
+            for file in files:
+                file_path = os.path.join(root, file)
+                file_relpath = os.path.relpath(file_path, tracked_path)
+                if conditions["max_depth"] and file_relpath.count("/") >= conditions["max_depth"]:
                     del dirs
+                    break
+                if conditions["exclude"] and any(e in file_relpath for e in conditions["exclude"]):
                     continue
-                if conditions["path_starts_with"] and not (relpath.startswith(conditions["path_starts_with"]) or conditions["path_starts_with"].startswith(relpath)):
-                    del dirs
+                if conditions["file_starts_with"] and not file.startswith(conditions["file_starts_with"]):
                     continue
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    file_relpath = os.path.relpath(file_path, tracked_path)
-                    if conditions["max_depth"] and file_relpath.count("/") >= conditions["max_depth"]:
-                        del dirs
-                        break
-                    if conditions["exclude"] and any(e in file_relpath for e in conditions["exclude"]):
+                if conditions["path_starts_with"] and not file_relpath.startswith(conditions["path_starts_with"]):
+                    continue
+                try:
+                    if conditions["max_size"] and not os.path.islink(file_path) and os.stat(file_path).st_size > conditions["max_size"]:
                         continue
-                    if conditions["file_starts_with"] and not file.startswith(conditions["file_starts_with"]):
+                    if not os.path.isfile(file_path):
                         continue
-                    if conditions["path_starts_with"] and not file_relpath.startswith(conditions["path_starts_with"]):
-                        continue
-                    try:
-                        if conditions["max_size"] and not os.path.islink(file_path) and os.stat(file_path).st_size > conditions["max_size"]:
-                            continue
-                        if not os.path.isfile(file_path):
-                            continue
-                        with open(file_path, "r", encoding="utf-8") as f:
-                            _ = f.read(1)
-                        copy_path = BASE_PATH + file_path
-                        if os.path.exists(copy_path) and not os.path.islink(copy_path):
-                            os.chmod(copy_path, 0o200)
-                        elif not os.path.isdir(os.path.dirname(copy_path)):
-                            os.makedirs(os.path.dirname(copy_path))
-                        shutil.copy2(file_path, copy_path, follow_symlinks=False)
-                    except Exception:
-                        pass
-            for root, dirs, files in os.walk(BASE_PATH + tracked_path):
-                for file in files:
-                    if not os.path.exists("/" + os.path.relpath(os.path.join(root, file), BASE_PATH)):
-                        if not os.path.islink(os.path.join(root, file)):
-                            os.chmod(os.path.join(root, file), 0o200)
-                        os.remove(os.path.join(root, file))
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        _ = f.read(1)
+                    copy_path = BASE_PATH + file_path
+                    if os.path.exists(copy_path) and not os.path.islink(copy_path):
+                        os.chmod(copy_path, 0o200)
+                    elif not os.path.isdir(os.path.dirname(copy_path)):
+                        os.makedirs(os.path.dirname(copy_path))
+                    shutil.copy2(file_path, copy_path, follow_symlinks=False)
+                except Exception:
+                    pass
+        for root, dirs, files in os.walk(BASE_PATH + tracked_path):
+            for file in files:
+                if not os.path.exists("/" + os.path.relpath(os.path.join(root, file), BASE_PATH)):
+                    if not os.path.islink(os.path.join(root, file)):
+                        os.chmod(os.path.join(root, file), 0o200)
+                    os.remove(os.path.join(root, file))
 
 
 def rsync_and_git_add_all(config: "Config") -> list:
     cmds = []
-    if any(config.tracked_paths[tracked_path] for tracked_path in config.tracked_paths):
-        cmds.append([sys.executable, os.path.abspath(__file__), "--_copy_conditional_paths"])
-    for tracked_path in config.tracked_paths:
-        if not config.tracked_paths[tracked_path]:
-            assert not (tracked_path.startswith(BASE_PATH) or BASE_PATH.startswith(tracked_path)), "directory recursion"
-            if not os.path.exists(os.path.dirname(BASE_PATH + tracked_path)):
-                os.makedirs(os.path.dirname(BASE_PATH + tracked_path))
-            cmds.append(["rsync", "-rlpt", "--delete", tracked_path, os.path.dirname(BASE_PATH + tracked_path)])
+    # for tracked_path in config.tracked_paths:
+    #     if not config.tracked_paths[tracked_path]:
+    #         assert not (tracked_path.startswith(BASE_PATH) or BASE_PATH.startswith(tracked_path)), "directory recursion"
+    #         if not os.path.exists(os.path.dirname(BASE_PATH + tracked_path)):
+    #             os.makedirs(os.path.dirname(BASE_PATH + tracked_path))
+            # cmds.append(["rsync", "-rlpt", "--delete", tracked_path, os.path.dirname(BASE_PATH + tracked_path)])
+    cmds.append([sys.executable, os.path.abspath(__file__), "--_copy_conditional_paths"])
     cmds.append(["git", "add", "--ignore-errors", "--all"])
     return cmds
 
@@ -278,6 +297,7 @@ def main() -> int:
             ["touch", "error.log"],
             ["bash", "-c", "echo '"
                 "history.log\n"
+                "hostname\n"
                 "docker/**\n"
                 "ignore/**\n"
                 "*~\n"
@@ -309,6 +329,10 @@ def main() -> int:
     elif args.push:
         cmds = [
             ["git", "push"]
+        ]
+    elif args.pull:
+        cmds = [
+            ["git", "pull"]
         ]
     elif args.untrack:
         paths = []
@@ -349,20 +373,22 @@ def main() -> int:
             *rsync_and_git_add_all(config),
             ["git", "commit", "-m", "baka upgrade"]
         ]
-    elif args.docker:
+    elif args.docker or args.podman:
+        compose: str = "sudo docker-compose" if args.docker else "podman-compose"
+        args.docker = args.docker if args.docker else args.podman
         assert args.docker[0] in ["up", "down", "pull"] and len(args.docker) >= 2
         assert args.docker[1] != "all" or (args.docker[1] == "all" and len(args.docker) == 2)
-        cmd = "up -d" if args.docker[0] == "up" else args.docker[0]
+        compose_arg = "up -d" if args.docker[0] == "up" else args.docker[0]
         cmds = []
         if args.docker[1] == "all":
             for folder in sorted(os.listdir("docker")):
                 if not os.path.exists(os.path.join("docker", folder, ".dockerignore")):
-                    assert os.path.exists(os.path.join("docker", folder, "docker-compose.yml"))
-                    cmds.append(["bash", "-c", "cd docker/%s && sudo docker-compose %s" % (folder, cmd)])
+                    cmds.append(["bash", "-c", f"cd docker/{folder} && {compose} {compose_arg}"])
         else:
             for folder in args.docker[1:]:
-                assert os.path.exists(os.path.join("docker", folder, "docker-compose.yml"))
-                cmds.append(["bash", "-c", "cd docker/%s && sudo docker-compose %s" % (folder, cmd)])
+                cmds.append(["bash", "-c", f"cd docker/{folder} && {compose} {compose_arg}"])
+    elif args.file:
+        raise NotImplementedError()
     elif args.job:
         if args.interactive:
             config.jobs[args.job]["interactive"] = True
@@ -479,13 +505,13 @@ def main() -> int:
                         command_output.append("\n")
                     elif verbosity in ["debug", "info", "error"]:
                         print("")
-                elif cmd[0] == "rsync":
-                    # hide permission errors for rsync, otherwise run command normally
-                    proc = subprocess.run(cmd, stderr=subprocess.PIPE, universal_newlines=True)
-                    for line in proc.stderr.splitlines():
-                        if line and "Permission denied (13)" not in line and "(see previous errors) (code 23)" not in line:
-                            print(line, file=sys.stderr)
-                    pending_stat = True
+                # elif cmd[0] == "rsync":
+                #     # hide permission errors for rsync, otherwise run command normally
+                #     proc = subprocess.run(cmd, stderr=subprocess.PIPE, universal_newlines=True)
+                #     for line in proc.stderr.splitlines():
+                #         if line and "Permission denied (13)" not in line and "(see previous errors) (code 23)" not in line:
+                #             print(line, file=sys.stderr)
+                #     pending_stat = True
                 else:
                     # run command normally
                     if cmd == [sys.executable, os.path.abspath(__file__), "--_copy_conditional_paths"]:

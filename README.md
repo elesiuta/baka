@@ -1,5 +1,5 @@
 # baka admin konfiguration assistant
-This is mostly just a wrapper for some git and rsync commands I made to help with managing my home server  
+This is mostly just a wrapper around git along with some other commands to help with managing servers or home directories  
 If you're looking for something similar but not stupid, see [etckeeper](https://wiki.archlinux.org/title/Etckeeper) or other [alternatives](https://wiki.archlinux.org/title/Dotfiles)  
 Otherwise, you can install from [PyPI](https://pypi.org/project/bakabakabaka/) with `pip install bakabakabaka`  
 ```
