@@ -19,6 +19,7 @@ import argparse
 import datetime
 import email
 import email.mime.text
+import hashlib
 import json
 import os
 import shlex
@@ -38,7 +39,7 @@ def init_parser() -> argparse.ArgumentParser:
                                      usage="%(prog)s [--dry-run] <argument>")
     parser.add_argument("--version", action="version", version=VERSION)
     maingrp = parser.add_mutually_exclusive_group()
-    maingrp.add_argument("--_copy_conditional_paths", dest="copy_conditional_paths", action="store_true",
+    maingrp.add_argument("--_hash_and_copy_files", dest="hash_and_copy_files", action="store_true",
                          help=argparse.SUPPRESS)
     maingrp.add_argument("--init", dest="init", action="store_true",
                          help="open config, init git repo, add files then commit")
@@ -76,6 +77,10 @@ def init_parser() -> argparse.ArgumentParser:
                          help="show pretty git log")
     maingrp.add_argument("--show", dest="show", action="store_true",
                          help="show most recent commit")
+    parser.add_argument("-e", dest="exit_zero_toggle", action="store_true",
+                        help="toggles 'exit_non_zero' setting for current run of job")
+    parser.add_argument("-y", dest="yes", action="store_true",
+                        help="supplies 'y' to job commands, similar to yes | job")
     parser.add_argument("-i", dest="interactive", action="store_true",
                         help="force job to run in interactive mode")
     parser.add_argument("-n", "--dry-run", dest="dry_run", action="store_true",
@@ -174,7 +179,7 @@ def os_stat_tracked_files(config: "Config") -> None:
     stat = {}
     for tracked_path in list(config.tracked_paths):
         if os.path.isdir(tracked_path):
-            for root, dirs, files in os.walk(BASE_PATH + tracked_path):
+            for root, dirs, files in os.walk(BASE_PATH + tracked_path, followlinks=False):
                 for file_or_folder in files + dirs:
                     file_path = "/" + os.path.relpath(os.path.join(root, file_or_folder), BASE_PATH)
                     if os.path.exists(file_path):
@@ -189,12 +194,20 @@ def os_stat_tracked_files(config: "Config") -> None:
         json.dump(stat, json_file, indent=2, separators=(',', ': '), sort_keys=True, ensure_ascii=False)
 
 
-def copy_conditional_paths(config: "Config") -> None:
+def hash_and_copy_files(config: "Config") -> None:
+    # also keep track of hashes, need to read the files anyways and can save on writes
+    new_hashes = {}
+    old_hashes = {}
+    if os.path.exists(os.path.join(BASE_PATH, "sha256.json")):
+        with open(os.path.join(BASE_PATH, "sha256.json"), "r", encoding="utf-8", errors="surrogateescape") as json_file:
+            old_hashes = json.load(json_file)
     for tracked_path in config.tracked_paths:
-        conditions = {"exclude": [], "file_starts_with": "", "path_starts_with": "", "max_depth": None, "max_size": None}
+        # set default values (no conditions) and load conditions for which files to track/copy
+        conditions = {"exclude": [], "file_starts_with": "", "path_starts_with": "", "max_depth": None, "max_size": None, "test_utf_readable": True}
         for condition in config.tracked_paths[tracked_path]:
             conditions[condition] = config.tracked_paths[tracked_path][condition]
-        for root, dirs, files in os.walk(tracked_path):
+        for root, dirs, files in os.walk(tracked_path, followlinks=False):
+            # check conditions
             relpath = os.path.relpath(root, tracked_path)
             if root.startswith(BASE_PATH):
                 del dirs
@@ -218,35 +231,49 @@ def copy_conditional_paths(config: "Config") -> None:
                     if conditions["max_size"] and not os.path.islink(file_path) and os.stat(file_path).st_size > conditions["max_size"]:
                         continue
                     if not os.path.isfile(file_path):
-                        continue
-                    with open(file_path, "r", encoding="utf-8") as f:
-                        _ = f.read(1)
+                        raise FileNotFoundError("not a file")
+                    if conditions["test_utf_readable"]:
+                        try:
+                            with open(file_path, "r", encoding="utf-8") as f:
+                                _ = f.read(1)
+                        except UnicodeDecodeError:
+                            continue
+                    # all conditions met, hash and copy file if changed
                     copy_path = BASE_PATH + file_path
+                    with open(file_path, "rb") as f:
+                        file_contents = f.read()
+                        new_hash = hashlib.sha256(file_contents).hexdigest()
+                        new_hashes[file_path] = new_hash
+                    if new_hash == old_hashes.get(file_path, ""):
+                        continue
+                    # dest might be readonly since permissions are copied, temporarily make it writable
                     if os.path.exists(copy_path) and not os.path.islink(copy_path):
                         os.chmod(copy_path, 0o200)
                     elif not os.path.isdir(os.path.dirname(copy_path)):
                         os.makedirs(os.path.dirname(copy_path))
-                    shutil.copy2(file_path, copy_path, follow_symlinks=False)
-                except Exception:
-                    pass
+                    with open(copy_path, "wb") as f:
+                        f.write(file_contents)
+                    shutil.copystat(file_path, copy_path, follow_symlinks=False)
+                    del file_contents
+                except Exception as e:
+                    print("Error: %s %s for %s" % (type(e).__name__, e.args, file_path), file=sys.stderr)
+        # remove copies of tracked files that no longer exist on system
         for root, dirs, files in os.walk(BASE_PATH + tracked_path):
             for file in files:
                 if not os.path.exists("/" + os.path.relpath(os.path.join(root, file), BASE_PATH)):
                     if not os.path.islink(os.path.join(root, file)):
                         os.chmod(os.path.join(root, file), 0o200)
                     os.remove(os.path.join(root, file))
+    # write new hashes
+    with open(os.path.join(BASE_PATH, "sha256.json"), "w", encoding="utf-8", errors="surrogateescape") as json_file:
+        json.dump(new_hashes, json_file, indent=2, separators=(',', ': '), sort_keys=True, ensure_ascii=False)
 
 
-def rsync_and_git_add_all(config: "Config") -> list:
-    cmds = []
-    # for tracked_path in config.tracked_paths:
-    #     if not config.tracked_paths[tracked_path]:
-    #         assert not (tracked_path.startswith(BASE_PATH) or BASE_PATH.startswith(tracked_path)), "directory recursion"
-    #         if not os.path.exists(os.path.dirname(BASE_PATH + tracked_path)):
-    #             os.makedirs(os.path.dirname(BASE_PATH + tracked_path))
-            # cmds.append(["rsync", "-rlpt", "--delete", tracked_path, os.path.dirname(BASE_PATH + tracked_path)])
-    cmds.append([sys.executable, os.path.abspath(__file__), "--_copy_conditional_paths"])
-    cmds.append(["git", "add", "--ignore-errors", "--all"])
+def copy_and_git_add_all() -> list[list[str]]:
+    cmds = [
+        [sys.executable, os.path.abspath(__file__), "--_hash_and_copy_files"],
+        ["git", "add", "--ignore-errors", "--all"]
+    ]
     return cmds
 
 
@@ -278,8 +305,8 @@ def main() -> int:
     original_cwd = os.getcwd()
     os.chdir(BASE_PATH)
     # select commands
-    if args.copy_conditional_paths:
-        copy_conditional_paths(config)
+    if args.hash_and_copy_files:
+        hash_and_copy_files(config)
         return 0
     elif args.init:
         # option to edit then reload config
@@ -313,7 +340,7 @@ def main() -> int:
             ["bash", "-c", "read -p 'Press enter to open .gitignore with nano'"],
             ["nano", os.path.join(BASE_PATH, ".gitignore")],
             ["bash", "-c", "read -p 'Press enter to add files to repository'"],
-            *rsync_and_git_add_all(config),
+            *copy_and_git_add_all(),
             ["mkdir", "-p", "docker"],
             ["mkdir", "-p", "ignore"],
             ["mkdir", "-p", "scripts"],
@@ -323,7 +350,7 @@ def main() -> int:
         ]
     elif args.commit:
         cmds = [
-            *rsync_and_git_add_all(config),
+            *copy_and_git_add_all(),
             ["git", "commit", "-m", "baka commit " + args.commit]
         ]
     elif args.push:
@@ -351,26 +378,26 @@ def main() -> int:
         ]
     elif args.install:
         cmds = [
-            *rsync_and_git_add_all(config),
+            *copy_and_git_add_all(),
             ["git", "commit", "-m", "baka pre-install"],
             config.cmd_install + args.install,
-            *rsync_and_git_add_all(config),
+            *copy_and_git_add_all(),
             ["git", "commit", "-m", "baka install " + " ".join(args.install)]
         ]
     elif args.remove is not None:
         cmds = [
-            *rsync_and_git_add_all(config),
+            *copy_and_git_add_all(),
             ["git", "commit", "-m", "baka pre-remove"],
             config.cmd_remove + args.remove,
-            *rsync_and_git_add_all(config),
+            *copy_and_git_add_all(),
             ["git", "commit", "-m", "baka remove " + " ".join(args.remove)]
         ]
     elif args.upgrade:
         cmds = [
-            *rsync_and_git_add_all(config),
+            *copy_and_git_add_all(),
             ["git", "commit", "-m", "baka pre-upgrade"],
             config.cmd_upgrade,
-            *rsync_and_git_add_all(config),
+            *copy_and_git_add_all(),
             ["git", "commit", "-m", "baka upgrade"]
         ]
     elif args.docker or args.podman:
@@ -392,6 +419,9 @@ def main() -> int:
     elif args.job:
         if args.interactive:
             config.jobs[args.job]["interactive"] = True
+        if args.exit_zero_toggle:
+            exit_non_zero = "exit_non_zero" in config.jobs[args.job] and config.jobs[args.job]["exit_non_zero"]
+            config.jobs[args.job]["exit_non_zero"] = not exit_non_zero
         cmds = config.jobs[args.job]["commands"]
     elif args.list:
         cmds = [
@@ -404,7 +434,7 @@ def main() -> int:
         assert ("history" not in config.system_checks)
         assert all([key not in config.system_scans for key in config.system_checks])
         cmds = [
-            *rsync_and_git_add_all(config),
+            *copy_and_git_add_all(),
             ["git", "commit", "-m", "baka pre-sysck"],
             *[["bash", "-c", "%s > syscks/%s.log" % (config.system_checks[key], key)] for key in config.system_checks],
             ["git", "add", "--ignore-errors", "--all"],
@@ -414,7 +444,7 @@ def main() -> int:
         assert ("history" not in config.system_scans)
         assert all([key not in config.system_checks for key in config.system_scans])
         cmds = [
-            *rsync_and_git_add_all(config),
+            *copy_and_git_add_all(),
             ["git", "commit", "-m", "baka pre-scan"],
             *[["bash", "-c", "%s | tee scans/%s.log" % (config.system_scans[key], key)] for key in config.system_scans],
             ["git", "add", "--ignore-errors", "--all"],
@@ -422,7 +452,7 @@ def main() -> int:
         ]
     elif args.diff:
         cmds = [
-            *rsync_and_git_add_all(config),
+            *copy_and_git_add_all(),
             ["git", "status", "-sb"],
             ["git", "diff", "--color-words", "--cached", "--minimal"]
         ]
@@ -476,6 +506,7 @@ def main() -> int:
                         else:
                             print("\033[91mInvalid response, exiting\033[0m")
                             break
+                    proc_input = "y\n" if args.yes else None
                     proc_out = subprocess.PIPE
                     proc_err = subprocess.PIPE
                     if not capture_output:
@@ -483,7 +514,7 @@ def main() -> int:
                             proc_out = sys.stdout
                         if verbosity in ["debug", "info", "error"]:
                             proc_err = sys.stderr
-                    proc = subprocess.run(cmd, stdout=proc_out, stderr=proc_err)
+                    proc = subprocess.run(cmd, stdout=proc_out, stderr=proc_err, input=proc_input)
                     if proc.returncode != 0:
                         if "exit_non_zero" in config.jobs[args.job] and config.jobs[args.job]["exit_non_zero"]:
                             return_code = proc.returncode
@@ -514,7 +545,7 @@ def main() -> int:
                 #     pending_stat = True
                 else:
                     # run command normally
-                    if cmd == [sys.executable, os.path.abspath(__file__), "--_copy_conditional_paths"]:
+                    if cmd == [sys.executable, os.path.abspath(__file__), "--_hash_and_copy_files"]:
                         pending_stat = True
                     elif pending_stat:
                         os_stat_tracked_files(config)
