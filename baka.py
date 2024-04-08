@@ -415,7 +415,32 @@ def main() -> int:
             for folder in args.docker[1:]:
                 cmds.append(["bash", "-c", f"cd docker/{folder} && {compose} {compose_arg}"])
     elif args.file:
-        raise NotImplementedError()
+        assert args.file[0] in ["save", "restore", "s", "r"] and len(args.file) >= 2
+        assert args.file[1] != "all" or (args.file[1] == "all" and len(args.file) == 2)
+        file_list = config.files.keys() if args.file[1] == "all" else args.file[1:]
+        cmds = [
+            ["git", "add", "--ignore-errors", "--all"],
+            ["git", "commit", "-m", f"baka pre-file {config.hostname}"]
+        ]
+        current_os = "windows" if os.name == "nt" else "linux"
+        not_current_os_abbrev = "lin" if current_os == "windows" else "win"
+        copy_command = ["cp", "-f"] if current_os == "linux" else ["copy", "/Y"]
+        os.path.makedirs(os.path.join(BASE_PATH, config.hostname), exist_ok=True)
+        for file in file_list:
+            assert len(config.files[file]) == 1
+            file_key = list(config.files[file].keys())[0]
+            if not_current_os_abbrev in file_key.split("_"):
+                continue
+            if args.file[0] in ["save", "s"]:
+                if "src" in file_key.split("_"):
+                    cmds.append([*copy_command, config.files[file][file_key], os.path.join(BASE_PATH, config.hostname, file)])
+                elif "cmd" in config.files[file]:
+                    cmds.append(["BAKA_DEST", os.path.join(BASE_PATH, config.hostname, file), *config.files[file]["cmd"]])
+            elif args.file[0] in ["restore", "r"]:
+                if "src" in file_key.split("_"):
+                    cmds.append([*copy_command, os.path.join(BASE_PATH, config.hostname, file), config.files[file][file_key]])
+        cmds.append(["git", "add", "--ignore-errors", "--all"])
+        cmds.append(["git", "commit", "-m", f"baka file {config.hostname}"])
     elif args.job:
         if args.interactive:
             config.jobs[args.job]["interactive"] = True
@@ -536,13 +561,14 @@ def main() -> int:
                         command_output.append("\n")
                     elif verbosity in ["debug", "info", "error"]:
                         print("")
-                # elif cmd[0] == "rsync":
-                #     # hide permission errors for rsync, otherwise run command normally
-                #     proc = subprocess.run(cmd, stderr=subprocess.PIPE, universal_newlines=True)
-                #     for line in proc.stderr.splitlines():
-                #         if line and "Permission denied (13)" not in line and "(see previous errors) (code 23)" not in line:
-                #             print(line, file=sys.stderr)
-                #     pending_stat = True
+                elif args.file:
+                    # save outputs of non-copy commands as files, otherwise run command normally
+                    if cmd[0] == "BAKA_DEST":
+                        dest = cmd[1]
+                        with open(dest, "w", encoding="utf-8", errors="surrogateescape") as f:
+                            f.write(subprocess.run(cmd[2:], capture_output=True, text=True).stdout)
+                    else:
+                        subprocess.run(cmd)
                 else:
                     # run command normally
                     if cmd == [sys.executable, os.path.abspath(__file__), "--_hash_and_copy_files"]:
