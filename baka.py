@@ -156,7 +156,12 @@ class Config:
         config_path = os.path.join(BASE_PATH, "config.json")
         if os.path.exists(config_path):
             with open(config_path, "r", encoding="utf-8", errors="surrogateescape") as json_file:
-                config = json.load(json_file)
+                # remove comments from json file
+                raw_text = json_file.readlines()
+                for i in reversed(range(len(raw_text))):
+                    if raw_text[i].lstrip().startswith("#"):
+                        _ = raw_text.pop(i)
+                config = json.loads("".join(raw_text))
             for key in config:
                 if config[key] is not None and hasattr(self, key):
                     self.__setattr__(key, config[key])
@@ -296,6 +301,8 @@ def send_email(config_email: dict, job_email: dict, body: str) -> int:
 
 
 def main() -> int:
+    if sys.flags.optimize > 0:
+        print("Warning: baka does not function properly with the -O (optimize) flag", file=sys.stderr)
     # parse arguments
     parser = init_parser()
     args = parser.parse_args()
@@ -320,13 +327,20 @@ def main() -> int:
         cmds = [
             ["git", "init"],
             ["git", "config", "user.name", "baka admin"],
-            ["git", "config", "user.email", "baka@" + os.uname().nodename],
+            ["git", "config", "user.email", "baka@" + config.hostname],
             ["touch", "error.log"],
             ["bash", "-c", "echo '"
                 "history.log\n"
                 "hostname\n"
                 "docker/**\n"
                 "ignore/**\n"
+                "!**/config.php\n"
+                "!**/*.ini\n"
+                "!**/*.json\n"
+                "!**/*.toml\n"
+                "!**/*.xml\n"
+                "!**/*.yaml\n"
+                "!**/*.yml\n"
                 "*~\n"
                 "*-old\n"
                 "*.cache\n"
@@ -423,7 +437,7 @@ def main() -> int:
             ["git", "commit", "-m", f"baka pre-file {config.hostname}"]
         ]
         current_os = "windows" if os.name == "nt" else "linux"
-        not_current_os_abbrev = "lin" if current_os == "windows" else "win"
+        not_current_os_abbrev = "l" if current_os == "windows" else "w"
         copy_command = ["cp", "-f"] if current_os == "linux" else ["copy", "/Y"]
         os.path.makedirs(os.path.join(BASE_PATH, config.hostname), exist_ok=True)
         for file in file_list:
@@ -566,9 +580,12 @@ def main() -> int:
                     if cmd[0] == "BAKA_DEST":
                         dest = cmd[1]
                         with open(dest, "w", encoding="utf-8", errors="surrogateescape") as f:
-                            f.write(subprocess.run(cmd[2:], capture_output=True, text=True).stdout)
+                            proc = subprocess.run(cmd[2:], capture_output=True, text=True)
+                            f.write(proc.stdout)
                     else:
-                        subprocess.run(cmd)
+                        proc = subprocess.run(cmd)
+                    if proc.returncode != 0 and not (cmd[0] == "git" and cmd[1] == "commit"):
+                        return_code += 1
                 else:
                     # run command normally
                     if cmd == [sys.executable, os.path.abspath(__file__), "--_hash_and_copy_files"]:
