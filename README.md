@@ -28,6 +28,8 @@ options:
   --diff         show git diff --color-words
   --log          show pretty git log
   --show         show most recent commit
+  -e             toggles 'exit_non_zero' setting for current run of job
+  -y             supplies 'y' to job commands, similar to yes | job
   -i             force job to run in interactive mode
   -n, --dry-run  print commands instead of executing them
 ```
