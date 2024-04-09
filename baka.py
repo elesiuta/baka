@@ -29,9 +29,10 @@ import socket
 import subprocess
 import sys
 import time
+import typing
 
-VERSION = "0.8.1"
-BASE_PATH = os.path.expanduser("~/.baka")
+__version__: typing.Final[str] = "0.8.2"
+BASE_PATH: typing.Final[str] = os.path.expanduser("~/.baka")
 
 
 def init_parser() -> argparse.ArgumentParser:
@@ -308,6 +309,10 @@ def send_email(config_email: dict, job_email: dict, body: str) -> int:
 
 
 def main() -> int:
+    # There are three main steps to baka:
+    # 1. Generate commands to be executed based on argument
+    # 2. Execute (or print if dry-run) commands
+    # 3. Append time and arguments to history.log, also log command output if job
     if sys.flags.optimize > 0:
         print("Warning: baka does not function properly with the -O (optimize) flag", file=sys.stderr)
     # parse arguments
@@ -318,8 +323,11 @@ def main() -> int:
     # change cwd to repo folder
     original_cwd = os.getcwd()
     os.chdir(BASE_PATH)
-    # select commands
+    # 1. Generate commands to be executed based on argument
+    # all arguments are mutually exclusive, except for dry-run or the job modifiers
+    # no commands are ever executed and nothing is ever written outside of ~/.baka if --dry-run
     if args.hash_and_copy_files:
+        # meant for internal use only
         hash_and_copy_files(config)
         return 0
     elif args.init:
@@ -512,14 +520,14 @@ def main() -> int:
     else:
         parser.print_usage()
         return 2
-    # execute commands
+    # 2. Execute (or print if dry-run) commands
     command_output = []
     error_message = ""
     pending_stat = False
     return_code = 0
     try:
         for cmd in cmds:
-            if args.job and "shlex_split" in config.jobs[args.job] and config.jobs[args.job]["shlex_split"]:
+            if args.job and config.jobs[args.job].get("shlex_split", False):
                 if type(cmd) == list and len(cmd) == 1:
                     cmd = cmd[0]
                 cmd = shlex.split(cmd)
@@ -527,87 +535,89 @@ def main() -> int:
                 print(shlex.join(cmd))
                 command_output.append("dry-run")
                 command_output.append(">>> " + shlex.join(cmd))
-            else:
-                if args.job:
-                    # run command as part of job, otherwise run command normally
-                    capture_output = bool(
-                        ("write" in config.jobs[args.job] and config.jobs[args.job]["write"]) or
-                        ("email" in config.jobs[args.job] and config.jobs[args.job]["email"] and config.jobs[args.job]["email"]["to"])
-                    )
-                    verbosity = ""
-                    if "verbosity" in config.jobs[args.job] and config.jobs[args.job]["verbosity"]:
-                        verbosity = config.jobs[args.job]["verbosity"].lower()
-                    if verbosity not in ["debug", "info", "error", "silent"]:
-                        verbosity = "debug"
-                    if verbosity in ["debug"]:
-                        print("\033[94m%s\033[0m" % shlex.join(cmd))
-                    if "interactive" in config.jobs[args.job] and config.jobs[args.job]["interactive"]:
-                        response = input("\033[92mContinue (yes/no/skip)?\033[0m ")
-                        if response.strip().lower().startswith("y"):
-                            pass
-                        elif response.strip().lower().startswith("n"):
-                            break
-                        elif response.strip().lower().startswith("s"):
-                            continue
-                        else:
-                            print("\033[91mInvalid response, exiting\033[0m")
-                            break
-                    proc_input = "y\n" if args.yes else None
-                    proc_out = subprocess.PIPE
-                    proc_err = subprocess.PIPE
-                    if not capture_output:
-                        if verbosity in ["debug", "info"]:
-                            proc_out = sys.stdout
-                        if verbosity in ["debug", "info", "error"]:
-                            proc_err = sys.stderr
-                    proc = subprocess.run(cmd, stdout=proc_out, stderr=proc_err, input=proc_input)
-                    if proc.returncode != 0:
-                        if "exit_non_zero" in config.jobs[args.job] and config.jobs[args.job]["exit_non_zero"]:
-                            return_code = proc.returncode
-                            error_message = "Error: baka job encountered a non-zero return code for `%s`, exiting" % shlex.join(cmd)
-                            command_output.append(error_message)
-                            print(error_message, file=sys.stderr)
-                            break
-                        else:
-                            return_code += 1
-                    if capture_output:
-                        if verbosity in ["debug", "info"]:
-                            sys.stdout.buffer.write(proc.stdout)
-                        if verbosity in ["debug", "info", "error"]:
-                            sys.stderr.buffer.write(proc.stderr)
-                            print("\n")
-                        command_output.append(">>> " + shlex.join(cmd))
-                        command_output.append(proc.stdout.decode().strip())
-                        command_output.append(proc.stderr.decode().strip())
-                        command_output.append("\n")
-                    elif verbosity in ["debug", "info", "error"]:
-                        print("")
-                elif args.file:
-                    # save outputs of non-copy commands as files, otherwise run command normally
-                    if cmd[0] == "BAKA_DEST":
-                        dest = cmd[1]
-                        with open(dest, "w", encoding="utf-8", errors="surrogateescape") as f:
-                            proc = subprocess.run(cmd[2:], capture_output=True, text=True)
-                            f.write(proc.stdout)
+                continue
+            # execute command if not dry-run
+            if args.job:
+                # run command as part of job, otherwise run command normally
+                capture_output = bool(
+                    ("write" in config.jobs[args.job] and config.jobs[args.job]["write"]) or
+                    ("email" in config.jobs[args.job] and config.jobs[args.job]["email"] and config.jobs[args.job]["email"]["to"])
+                )
+                verbosity = ""
+                if "verbosity" in config.jobs[args.job] and config.jobs[args.job]["verbosity"]:
+                    verbosity = config.jobs[args.job]["verbosity"].lower()
+                if verbosity not in ["debug", "info", "error", "silent"]:
+                    verbosity = "debug"
+                if verbosity in ["debug"]:
+                    print("\033[94m%s\033[0m" % shlex.join(cmd))
+                if "interactive" in config.jobs[args.job] and config.jobs[args.job]["interactive"]:
+                    response = input("\033[92mContinue (yes/no/skip)?\033[0m ")
+                    if response.strip().lower().startswith("y"):
+                        pass
+                    elif response.strip().lower().startswith("n"):
+                        break
+                    elif response.strip().lower().startswith("s"):
+                        continue
                     else:
-                        proc = subprocess.run(cmd)
-                    if proc.returncode != 0 and not (cmd[0] == "git" and cmd[1] == "commit"):
+                        print("\033[91mInvalid response, exiting\033[0m")
+                        break
+                proc_input = "y\n" if args.yes else None
+                proc_out = subprocess.PIPE
+                proc_err = subprocess.PIPE
+                if not capture_output:
+                    if verbosity in ["debug", "info"]:
+                        proc_out = sys.stdout
+                    if verbosity in ["debug", "info", "error"]:
+                        proc_err = sys.stderr
+                proc = subprocess.run(cmd, stdout=proc_out, stderr=proc_err, input=proc_input)
+                if proc.returncode != 0:
+                    if "exit_non_zero" in config.jobs[args.job] and config.jobs[args.job]["exit_non_zero"]:
+                        return_code = proc.returncode
+                        error_message = "Error: baka job encountered a non-zero return code for `%s`, exiting" % shlex.join(cmd)
+                        command_output.append(error_message)
+                        print(error_message, file=sys.stderr)
+                        break
+                    else:
                         return_code += 1
+                if capture_output:
+                    if verbosity in ["debug", "info"]:
+                        sys.stdout.buffer.write(proc.stdout)
+                    if verbosity in ["debug", "info", "error"]:
+                        sys.stderr.buffer.write(proc.stderr)
+                        print("\n")
+                    command_output.append(">>> " + shlex.join(cmd))
+                    command_output.append(proc.stdout.decode().strip())
+                    command_output.append(proc.stderr.decode().strip())
+                    command_output.append("\n")
+                elif verbosity in ["debug", "info", "error"]:
+                    print("")
+            elif args.file:
+                # save outputs of non-copy commands as files, otherwise run command normally
+                if cmd[0] == "BAKA_DEST":
+                    dest = cmd[1]
+                    with open(dest, "w", encoding="utf-8", errors="surrogateescape") as f:
+                        proc = subprocess.run(cmd[2:], capture_output=True, text=True)
+                        f.write(proc.stdout)
                 else:
-                    # run command normally
-                    if cmd == [sys.executable, os.path.abspath(__file__), "--_hash_and_copy_files"]:
-                        pending_stat = True
-                    elif pending_stat:
-                        os_stat_tracked_files(config)
-                        pending_stat = False
                     proc = subprocess.run(cmd)
-                    if proc.returncode != 0 and not (cmd[0] == "git" and cmd[1] == "commit"):
-                        return_code += 1
+                if proc.returncode != 0 and not (cmd[0] == "git" and cmd[1] == "commit"):
+                    return_code += 1
+            else:
+                # run command normally
+                if cmd == [sys.executable, os.path.abspath(__file__), "--_hash_and_copy_files"]:
+                    pending_stat = True
+                elif pending_stat:
+                    os_stat_tracked_files(config)
+                    pending_stat = False
+                proc = subprocess.run(cmd)
+                if proc.returncode != 0 and not (cmd[0] == "git" and cmd[1] == "commit"):
+                    return_code += 1
     except Exception as e:
         error_message = "Error baka line: %s For: %s %s %s" % (sys.exc_info()[2].tb_lineno, shlex.join(cmd), type(e).__name__, e.args)
         command_output.append(error_message)
         print(error_message, file=sys.stderr)
-    # write log
+    # 3. Append time and arguments to history.log, also log command output if job
+    # append to history.log
     if not (args.dry_run or args.diff or args.log or args.show):
         log_entry = time.ctime()
         for key in vars(args):
