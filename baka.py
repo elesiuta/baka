@@ -38,7 +38,7 @@ BASE_PATH: typing.Final[str] = os.path.expanduser("~/.baka")
 def init_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="the stupid configuration tracker using the stupid content tracker",
                                      usage="%(prog)s [--dry-run] <argument>")
-    parser.add_argument("--version", action="version", version=VERSION)
+    parser.add_argument("--version", action="version", version=__version__)
     maingrp = parser.add_mutually_exclusive_group()
     maingrp.add_argument("--_hash_and_copy_files", dest="hash_and_copy_files", action="store_true",
                          help=argparse.SUPPRESS)
