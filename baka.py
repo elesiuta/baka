@@ -31,7 +31,7 @@ import sys
 import time
 import typing
 
-__version__: typing.Final[str] = "0.8.3"
+__version__: typing.Final[str] = "0.8.5"
 BASE_PATH: typing.Final[str] = os.path.expanduser("~/.baka")
 
 
