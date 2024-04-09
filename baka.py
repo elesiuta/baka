@@ -30,7 +30,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "0.8.0"
+VERSION = "0.8.1"
 BASE_PATH = os.path.expanduser("~/.baka")
 
 
@@ -203,6 +203,7 @@ def hash_and_copy_files(config: "Config") -> None:
     # also keep track of hashes, need to read the files anyways and can save on writes
     new_hashes = {}
     old_hashes = {}
+    omitted = {}
     if os.path.exists(os.path.join(BASE_PATH, "sha256.json")):
         with open(os.path.join(BASE_PATH, "sha256.json"), "r", encoding="utf-8", errors="surrogateescape") as json_file:
             old_hashes = json.load(json_file)
@@ -214,35 +215,39 @@ def hash_and_copy_files(config: "Config") -> None:
         for root, dirs, files in os.walk(tracked_path, followlinks=False):
             # check conditions
             relpath = os.path.relpath(root, tracked_path)
+            # ~/.baka is a subfolder of the path to track
             if root.startswith(BASE_PATH):
                 del dirs
                 continue
             if conditions["path_starts_with"] and not (relpath.startswith(conditions["path_starts_with"]) or conditions["path_starts_with"].startswith(relpath)):
+                omitted[root] = "path_starts_with"
+                del dirs
+                continue
+            if conditions["max_depth"] and relpath.count("/") > conditions["max_depth"]:
+                omitted[root] = "max_depth"
                 del dirs
                 continue
             for file in files:
                 file_path = os.path.join(root, file)
                 file_relpath = os.path.relpath(file_path, tracked_path)
-                if conditions["max_depth"] and file_relpath.count("/") >= conditions["max_depth"]:
-                    del dirs
-                    break
                 if conditions["exclude"] and any(e in file_relpath for e in conditions["exclude"]):
+                    omitted[file_path] = "exclude"
                     continue
                 if conditions["file_starts_with"] and not file.startswith(conditions["file_starts_with"]):
+                    omitted[file_path] = "file_starts_with"
                     continue
                 if conditions["path_starts_with"] and not file_relpath.startswith(conditions["path_starts_with"]):
+                    omitted[file_path] = "path_starts_with"
                     continue
                 try:
-                    if conditions["max_size"] and not os.path.islink(file_path) and os.stat(file_path).st_size > conditions["max_size"]:
+                    if os.path.islink(file_path):
+                        omitted[file_path] = f"islink: {os.path.realpath(file_path)}"
+                    if conditions["max_size"] and os.stat(file_path).st_size > conditions["max_size"]:
+                        omitted[file_path] = "max_size"
                         continue
-                    if not os.path.isfile(file_path):
-                        raise FileNotFoundError("not a file")
                     if conditions["test_utf_readable"]:
-                        try:
-                            with open(file_path, "r", encoding="utf-8") as f:
-                                _ = f.read(1)
-                        except UnicodeDecodeError:
-                            continue
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            _ = f.read(1)
                     # all conditions met, hash and copy file if changed
                     copy_path = BASE_PATH + file_path
                     with open(file_path, "rb") as f:
@@ -258,20 +263,22 @@ def hash_and_copy_files(config: "Config") -> None:
                         os.makedirs(os.path.dirname(copy_path))
                     with open(copy_path, "wb") as f:
                         f.write(file_contents)
-                    shutil.copystat(file_path, copy_path, follow_symlinks=False)
+                    shutil.copystat(file_path, copy_path)
                     del file_contents
                 except Exception as e:
-                    print("Error: %s %s for %s" % (type(e).__name__, e.args, file_path), file=sys.stderr)
+                    omitted[file_path] = type(e).__name__
         # remove copies of tracked files that no longer exist on system
-        for root, dirs, files in os.walk(BASE_PATH + tracked_path):
+        for root, dirs, files in os.walk(BASE_PATH + tracked_path, followlinks=False):
             for file in files:
                 if not os.path.exists("/" + os.path.relpath(os.path.join(root, file), BASE_PATH)):
                     if not os.path.islink(os.path.join(root, file)):
                         os.chmod(os.path.join(root, file), 0o200)
                     os.remove(os.path.join(root, file))
-    # write new hashes
+    # write new hashes and omitted files with reasons
     with open(os.path.join(BASE_PATH, "sha256.json"), "w", encoding="utf-8", errors="surrogateescape") as json_file:
         json.dump(new_hashes, json_file, indent=2, separators=(',', ': '), sort_keys=True, ensure_ascii=False)
+    with open(os.path.join(BASE_PATH, "omitted.json"), "w", encoding="utf-8", errors="surrogateescape") as json_file:
+        json.dump(omitted, json_file, indent=2, separators=(',', ': '), sort_keys=True, ensure_ascii=False)
 
 
 def copy_and_git_add_all() -> list[list[str]]:
