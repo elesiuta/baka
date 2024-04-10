@@ -65,7 +65,7 @@ def init_parser() -> argparse.ArgumentParser:
     maingrp.add_argument("--file", dest="file", nargs=argparse.REMAINDER,
                          help="usage: --file <save|restore> <all|names...>")
     maingrp.add_argument("--job", dest="job", type=str, metavar="name",
-                         help="run commands for job with name")
+                         help="run commands for job with name (modifiers: -i, -e, -y)")
     maingrp.add_argument("--list", dest="list", action="store_true",
                          help="show list of jobs")
     maingrp.add_argument("--sysck", dest="system_checks", action="store_true",
@@ -78,12 +78,12 @@ def init_parser() -> argparse.ArgumentParser:
                          help="show pretty git log")
     maingrp.add_argument("--show", dest="show", action="store_true",
                          help="show most recent commit")
-    parser.add_argument("-e", dest="exit_zero_toggle", action="store_true",
-                        help="toggles 'exit_non_zero' setting for current run of job")
-    parser.add_argument("-y", dest="yes", action="store_true",
-                        help="supplies 'y' to job commands, similar to yes | job")
     parser.add_argument("-i", dest="interactive", action="store_true",
                         help="force job to run in interactive mode")
+    parser.add_argument("-e", dest="error_interactive", action="store_true",
+                        help="job interactive mode after error (non zero exit code)")
+    parser.add_argument("-y", dest="yes", action="store_true",
+                        help="supplies 'y' to job commands, similar to yes | job")
     parser.add_argument("-n", "--dry-run", dest="dry_run", action="store_true",
                         help="print commands instead of executing them")
     return parser
@@ -476,9 +476,6 @@ def main() -> int:
     elif args.job:
         if args.interactive:
             config.jobs[args.job]["interactive"] = True
-        if args.exit_zero_toggle:
-            exit_non_zero = "exit_non_zero" in config.jobs[args.job] and config.jobs[args.job]["exit_non_zero"]
-            config.jobs[args.job]["exit_non_zero"] = not exit_non_zero
         cmds = config.jobs[args.job]["commands"]
     elif args.list:
         cmds = [
@@ -552,7 +549,7 @@ def main() -> int:
                 assert verbosity in ["debug", "info", "error", "silent"]
                 if verbosity in ["debug"]:
                     print("\033[94m%s\033[0m" % shlex.join(cmd))
-                if "interactive" in config.jobs[args.job] and config.jobs[args.job]["interactive"]:
+                if config.jobs[args.job].get("interactive", False):
                     response = input("\033[92mContinue (yes/no/skip)?\033[0m ")
                     if response.strip().lower().startswith("y"):
                         pass
@@ -573,9 +570,13 @@ def main() -> int:
                         proc_err = sys.stderr
                 proc = subprocess.run(cmd, stdout=proc_out, stderr=proc_err, input=proc_input)
                 if proc.returncode != 0:
-                    if "exit_non_zero" in config.jobs[args.job] and config.jobs[args.job]["exit_non_zero"]:
+                    if args.error_interactive:
+                        return_code += 1
+                        print(f"Error: exit {proc.returncode} for `{shlex.join(cmd)}`, continuing in interactive mode")
+                        config.jobs[args.job]["interactive"] = True
+                    elif config.jobs[args.job].get("exit_non_zero", False):
                         return_code = proc.returncode
-                        error_message = "Error: baka job encountered a non-zero return code for `%s`, exiting" % shlex.join(cmd)
+                        error_message = "Error: baka job encountered a non-zero exit code for `%s`, exiting" % shlex.join(cmd)
                         command_output.append(error_message)
                         print(error_message, file=sys.stderr)
                         break

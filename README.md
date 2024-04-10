@@ -21,15 +21,15 @@ options:
   --docker ...   usage: --docker <up|down|pull> <all|names...>
   --podman ...   usage: --podman <up|down|pull> <all|names...>
   --file ...     usage: --file <save|restore> <all|names...>
-  --job name     run commands for job with name
+  --job name     run commands for job with name (modifiers: -i, -e, -y)
   --list         show list of jobs
   --sysck        run commands for system checks and commits output
   --scan         run commands for scanning system, prints and commits output
   --diff         show git diff --color-words
   --log          show pretty git log
   --show         show most recent commit
-  -e             toggles 'exit_non_zero' setting for current run of job
-  -y             supplies 'y' to job commands, similar to yes | job
   -i             force job to run in interactive mode
+  -e             job interactive mode after error (non zero exit code)
+  -y             supplies 'y' to job commands, similar to yes | job
   -n, --dry-run  print commands instead of executing them
 ```
