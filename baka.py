@@ -543,11 +543,10 @@ def main() -> int:
                     ("write" in config.jobs[args.job] and config.jobs[args.job]["write"]) or
                     ("email" in config.jobs[args.job] and config.jobs[args.job]["email"] and config.jobs[args.job]["email"]["to"])
                 )
-                verbosity = ""
-                if "verbosity" in config.jobs[args.job] and config.jobs[args.job]["verbosity"]:
-                    verbosity = config.jobs[args.job]["verbosity"].lower()
-                if verbosity not in ["debug", "info", "error", "silent"]:
-                    verbosity = "debug"
+                verbosity = config.jobs[args.job].get("verbosity", "debug")
+                verbosity = verbosity if verbosity else "debug"
+                verbosity = verbosity.lower()
+                assert verbosity in ["debug", "info", "error", "silent"]
                 if verbosity in ["debug"]:
                     print("\033[94m%s\033[0m" % shlex.join(cmd))
                 if "interactive" in config.jobs[args.job] and config.jobs[args.job]["interactive"]:
@@ -561,7 +560,7 @@ def main() -> int:
                     else:
                         print("\033[91mInvalid response, exiting\033[0m")
                         break
-                proc_input = "y\n" if args.yes else None
+                proc_input = b"y\n" if args.yes else None
                 proc_out = subprocess.PIPE
                 proc_err = subprocess.PIPE
                 if not capture_output:
