@@ -210,7 +210,7 @@ def hash_and_copy_files(config: "Config") -> None:
             old_hashes = json.load(json_file)
     for tracked_path in config.tracked_paths:
         # set default values (no conditions) and load conditions for which files to track/copy
-        conditions = {"exclude": [], "file_starts_with": "", "path_starts_with": "", "max_depth": None, "max_size": None, "test_utf_readable": True}
+        conditions = {"exclude": [], "include": [], "file_starts_with": "", "path_starts_with": "", "max_depth": None, "max_size": None, "test_utf_readable": True}
         for condition in config.tracked_paths[tracked_path]:
             conditions[condition] = config.tracked_paths[tracked_path][condition]
         for root, dirs, files in os.walk(tracked_path, followlinks=False):
@@ -233,6 +233,9 @@ def hash_and_copy_files(config: "Config") -> None:
                 file_relpath = os.path.relpath(file_path, tracked_path)
                 if conditions["exclude"] and any(e in file_relpath for e in conditions["exclude"]):
                     omitted[file_path] = "exclude"
+                    continue
+                if conditions["include"] and not any(i in file_relpath for i in conditions["include"]):
+                    omitted[file_path] = "include"
                     continue
                 if conditions["file_starts_with"] and not file.startswith(conditions["file_starts_with"]):
                     omitted[file_path] = "file_starts_with"
