@@ -220,7 +220,7 @@ def hash_and_copy_files(config: "Config") -> None:
             if root.startswith(BASE_PATH):
                 del dirs
                 continue
-            if conditions["path_starts_with"] and not (relpath.startswith(conditions["path_starts_with"]) or conditions["path_starts_with"].startswith(relpath)):
+            if conditions["path_starts_with"] and not relpath.startswith(conditions["path_starts_with"]):
                 omitted[root] = "path_starts_with"
                 del dirs
                 continue
