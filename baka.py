@@ -31,7 +31,7 @@ import sys
 import time
 import typing
 
-__version__: typing.Final[str] = "0.8.6"
+__version__: typing.Final[str] = "0.8.7"
 BASE_PATH: typing.Final[str] = os.path.expanduser("~/.baka")
 
 
@@ -334,6 +334,7 @@ def main() -> int:
         hash_and_copy_files(config)
         return 0
     elif args.init:
+        assert not (os.path.exists(os.path.join(BASE_PATH, ".gitignore")) or os.path.exists(os.path.join(BASE_PATH, ".git")))
         # option to edit then reload config
         _ = input("Press enter to open your config file with nano")
         if args.dry_run:
