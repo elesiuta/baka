@@ -31,7 +31,7 @@ import sys
 import time
 import typing
 
-__version__: typing.Final[str] = "0.8.7"
+__version__: typing.Final[str] = "0.8.8"
 BASE_PATH: typing.Final[str] = os.path.expanduser("~/.baka")
 
 
@@ -458,7 +458,7 @@ def main() -> int:
         current_os = "windows" if os.name == "nt" else "linux"
         not_current_os_abbrev = "l" if current_os == "windows" else "w"
         copy_command = ["cp", "-f"] if current_os == "linux" else ["copy", "/Y"]
-        os.path.makedirs(os.path.join(BASE_PATH, config.hostname), exist_ok=True)
+        os.makedirs(os.path.join(BASE_PATH, config.hostname), exist_ok=True)
         for file in file_list:
             assert len(config.files[file]) == 1
             file_key = list(config.files[file].keys())[0]
@@ -466,12 +466,12 @@ def main() -> int:
                 continue
             if args.file[0] in ["save", "s"]:
                 if "src" in file_key.split("_"):
-                    cmds.append([*copy_command, config.files[file][file_key], os.path.join(BASE_PATH, config.hostname, file)])
-                elif "cmd" in config.files[file]:
-                    cmds.append(["BAKA_DEST", os.path.join(BASE_PATH, config.hostname, file), *config.files[file]["cmd"]])
+                    cmds.append([*copy_command, os.path.expandvars(os.path.expanduser(config.files[file][file_key])), os.path.join(BASE_PATH, config.hostname, file)])
+                elif "cmd" in file_key.split("_"):
+                    cmds.append(["BAKA_DEST", os.path.join(BASE_PATH, config.hostname, file), *config.files[file][file_key]])
             elif args.file[0] in ["restore", "r"]:
                 if "src" in file_key.split("_"):
-                    cmds.append([*copy_command, os.path.join(BASE_PATH, config.hostname, file), config.files[file][file_key]])
+                    cmds.append([*copy_command, os.path.join(BASE_PATH, config.hostname, file), os.path.expandvars(os.path.expanduser(config.files[file][file_key]))])
         cmds.append(["git", "add", "--ignore-errors", "--all"])
         cmds.append(["git", "commit", "-m", f"baka file {config.hostname}"])
     elif args.job:
