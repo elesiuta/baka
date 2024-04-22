@@ -19,6 +19,7 @@ import argparse
 import datetime
 import email
 import email.mime.text
+import functools
 import hashlib
 import json
 import os
@@ -31,7 +32,7 @@ import sys
 import time
 import typing
 
-__version__: typing.Final[str] = "0.8.8"
+__version__: typing.Final[str] = "0.8.9"
 BASE_PATH: typing.Final[str] = os.path.expanduser("~/.baka")
 
 
@@ -480,10 +481,13 @@ def main() -> int:
         cmds = config.jobs[args.job]["commands"]
     elif args.list:
         cmds = [
-            ["echo", "Prompt\tExit!0\tJob Name\n========================"],
-            *[["echo", "%s\t%s\t%s" % ("interactive" in config.jobs[job] and config.jobs[job]["interactive"],
-                                       "exit_non_zero" in config.jobs[job] and config.jobs[job]["exit_non_zero"],
-                                       job)] for job in config.jobs]
+            ["echo", "Email\tExit!0\tInter.\tVerb.\tWrite\tJob Name\n================================================"],
+            *[["echo", "%s\t%s\t%s\t%s\t%s\t%s" % (str(functools.reduce(lambda d, k : d.get(k) if isinstance(d, dict) and d.get(k) else False, ("email", "to"), config.jobs[job]))[:6],
+                                                   bool(config.jobs[job].get("exit_non_zero")),
+                                                   bool(config.jobs[job].get("interactive")),
+                                                   str(config.jobs[job].get("verbosity", "debug"))[:6],
+                                                   str(config.jobs[job].get("write", False))[:6],
+                                                   job)] for job in config.jobs]
         ]
     elif args.system_checks:
         assert ("history" not in config.system_checks)
@@ -541,8 +545,8 @@ def main() -> int:
             if args.job:
                 # run command as part of job, otherwise run command normally
                 capture_output = bool(
-                    ("write" in config.jobs[args.job] and config.jobs[args.job]["write"]) or
-                    ("email" in config.jobs[args.job] and config.jobs[args.job]["email"] and config.jobs[args.job]["email"]["to"])
+                    (config.jobs[args.job].get("write")) or
+                    (isinstance(config.jobs[args.job].get("email"), dict) and config.jobs[args.job]["email"].get("to"))
                 )
                 verbosity = config.jobs[args.job].get("verbosity", "debug")
                 verbosity = verbosity if verbosity else "debug"
@@ -550,7 +554,7 @@ def main() -> int:
                 assert verbosity in ["debug", "info", "error", "silent"]
                 if verbosity in ["debug"]:
                     print("\033[94m%s\033[0m" % shlex.join(cmd))
-                if config.jobs[args.job].get("interactive", False):
+                if config.jobs[args.job].get("interactive"):
                     response = input("\033[92mContinue (yes/no/skip)?\033[0m ")
                     if response.strip().lower().startswith("y"):
                         pass
@@ -575,7 +579,7 @@ def main() -> int:
                         return_code += 1
                         print(f"Error: exit {proc.returncode} for `{shlex.join(cmd)}`, continuing in interactive mode")
                         config.jobs[args.job]["interactive"] = True
-                    elif config.jobs[args.job].get("exit_non_zero", False):
+                    elif config.jobs[args.job].get("exit_non_zero"):
                         return_code = proc.returncode
                         error_message = "Error: baka job encountered a non-zero exit code for `%s`, exiting" % shlex.join(cmd)
                         command_output.append(error_message)
@@ -634,14 +638,14 @@ def main() -> int:
     # email or write command output
     if args.job:
         command_output = "\n".join(command_output)
-        if "email" in config.jobs[args.job] and config.jobs[args.job]["email"] and config.jobs[args.job]["email"]["to"]:
+        if isinstance(config.jobs[args.job].get("email"), dict) and config.jobs[args.job]["email"].get("to"):
             try:
                 send_email(config.email, config.jobs[args.job]["email"], command_output)
             except Exception as e:
                 error_email = "--- %s ---\nEmail Error: %s %s\nMessage:\n%s" % (time.ctime(), type(e).__name__, e.args, command_output)
                 with open(os.path.join(BASE_PATH, "error.log"), "a", encoding="utf-8", errors="surrogateescape") as log_file:
                     log_file.write(error_email + "\n")
-        if "write" in config.jobs[args.job] and config.jobs[args.job]["write"]:
+        if config.jobs[args.job].get("write"):
             file_path = os.path.abspath(datetime.datetime.now().strftime(config.jobs[args.job]["write"]))
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             with open(file_path, "w", encoding="utf-8", errors="backslashreplace") as f:
