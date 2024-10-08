@@ -14,6 +14,7 @@ setuptools.setup(
     license="GPLv3",
     py_modules=["baka"],
     entry_points={"console_scripts": ["baka = baka:main"]},
+    install_requires=["argcomplete"],
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)"

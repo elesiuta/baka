@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# PYTHON_ARGCOMPLETE_OK
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -32,7 +33,9 @@ import sys
 import time
 import typing
 
-__version__: typing.Final[str] = "0.8.9"
+import argcomplete
+
+__version__: typing.Final[str] = "0.9.0"
 BASE_PATH: typing.Final[str] = os.path.expanduser("~/.baka")
 
 
@@ -60,9 +63,7 @@ def init_parser() -> argparse.ArgumentParser:
     maingrp.add_argument("--upgrade", dest="upgrade", action="store_true",
                          help="upgrade packages on system and commit changes")
     maingrp.add_argument("--docker", dest="docker", nargs=argparse.REMAINDER,
-                         help="usage: --docker <up|down|pull> <all|names...>")
-    maingrp.add_argument("--podman", dest="podman", nargs=argparse.REMAINDER,
-                         help="usage: --podman <up|down|pull> <all|names...>")
+                         help="usage: --docker <compose_subcommand> <all|names...>")
     maingrp.add_argument("--file", dest="file", nargs=argparse.REMAINDER,
                          help="usage: --file <save|restore> <all|names...>")
     maingrp.add_argument("--job", dest="job", type=str, metavar="name",
@@ -87,12 +88,14 @@ def init_parser() -> argparse.ArgumentParser:
                         help="supplies 'y' to job commands, similar to yes | job")
     parser.add_argument("-n", "--dry-run", dest="dry_run", action="store_true",
                         help="print commands instead of executing them")
+    argcomplete.autocomplete(parser)
     return parser
 
 
 class Config:
     def __init__(self):
         # default config
+        self.cmd_docker_compose = ["sudo", "docker", "compose"]
         self.cmd_install = ["sudo", "apt", "install"]
         self.cmd_remove = ["sudo", "apt", "autoremove", "--purge"]
         self.cmd_upgrade = ["bash", "-c", "sudo apt update && sudo apt dist-upgrade"]
@@ -113,6 +116,8 @@ class Config:
                 "cmd": ["echo", "command to generate file"],
             }
         }
+        self.files_pre_cmd = []
+        self.files_post_cmd = []
         self.jobs = {
             "example_job_name": {
                 "commands": [
@@ -163,6 +168,8 @@ class Config:
                 for i in reversed(range(len(raw_text))):
                     if raw_text[i].lstrip().startswith("#"):
                         _ = raw_text.pop(i)
+                    elif raw_text[i].lstrip().startswith("//"):
+                        _ = raw_text.pop(i)
                 config = json.loads("".join(raw_text))
             for key in config:
                 if config[key] is not None and hasattr(self, key):
@@ -182,9 +189,9 @@ class Config:
             self.hostname = socket.gethostname()
 
 
-def os_stat_tracked_files(config: "Config") -> None:
+def os_stat_tracked_files(config: "Config", extra_files: list[str] = []) -> None:
     stat = {}
-    for tracked_path in list(config.tracked_paths):
+    for tracked_path in list(config.tracked_paths) + extra_files:
         if os.path.isdir(tracked_path):
             for root, dirs, files in os.walk(BASE_PATH + tracked_path, followlinks=False):
                 for file_or_folder in files + dirs:
@@ -434,47 +441,71 @@ def main() -> int:
             *copy_and_git_add_all(),
             ["git", "commit", "-m", "baka upgrade"]
         ]
-    elif args.docker or args.podman:
-        compose: str = "sudo docker-compose" if args.docker else "podman-compose"
-        args.docker = args.docker if args.docker else args.podman
-        assert args.docker[0] in ["up", "down", "pull"] and len(args.docker) >= 2
+    elif args.docker:
+        compose_cmd: str = shlex.join(config.cmd_docker_compose)
+        assert len(args.docker) >= 2
         assert args.docker[1] != "all" or (args.docker[1] == "all" and len(args.docker) == 2)
         compose_arg = "up -d" if args.docker[0] == "up" else args.docker[0]
         cmds = []
         if args.docker[1] == "all":
             for folder in sorted(os.listdir("docker")):
                 if not os.path.exists(os.path.join("docker", folder, ".dockerignore")):
-                    cmds.append(["bash", "-c", f"cd docker/{folder} && {compose} {compose_arg}"])
+                    cmds.append(["bash", "-c", f"cd docker/{folder} && {compose_cmd} {compose_arg}"])
         else:
             for folder in args.docker[1:]:
-                cmds.append(["bash", "-c", f"cd docker/{folder} && {compose} {compose_arg}"])
+                cmds.append(["bash", "-c", f"cd docker/{folder} && {compose_cmd} {compose_arg}"])
     elif args.file:
         assert args.file[0] in ["save", "restore", "s", "r"] and len(args.file) >= 2
         assert args.file[1] != "all" or (args.file[1] == "all" and len(args.file) == 2)
+        try:
+            with open(os.path.join(BASE_PATH, "stat.json"), "r", encoding="utf-8", errors="surrogateescape") as json_file:
+                file_stats = json.load(json_file)
+        except:
+            file_stats = {}
         file_list = config.files.keys() if args.file[1] == "all" else args.file[1:]
-        cmds = [
-            ["git", "add", "--ignore-errors", "--all"],
-            ["git", "commit", "-m", f"baka pre-file {config.hostname}"]
-        ]
-        current_os = "windows" if os.name == "nt" else "linux"
-        not_current_os_abbrev = "l" if current_os == "windows" else "w"
-        copy_command = ["cp", "-f"] if current_os == "linux" else ["copy", "/Y"]
+        files_to_stat = []
+        cmds = []
+        if config.files_pre_cmd:
+            cmds.append(config.files_pre_cmd)
+        cmds.append(["git", "add", "--ignore-errors", "--all"])
+        cmds.append(["git", "commit", "-m", f"baka pre-file {config.hostname}"])
+        current_os = "windows" if os.name == "nt" else "mac" if sys.platform == "darwin" else "linux"
+        current_os_abbrev = current_os[0]
+        copy_command = ["copy", "/Y"] if current_os == "windows" else ["cp", "-f"]
         os.makedirs(os.path.join(BASE_PATH, config.hostname), exist_ok=True)
         for file in file_list:
-            assert len(config.files[file]) == 1
-            file_key = list(config.files[file].keys())[0]
-            if not_current_os_abbrev in file_key.split("_"):
+            file_key_prefix = set(k.split("_")[0] for k in config.files[file].keys())
+            assert file_key_prefix.issubset({"src", "cmd"}), f"file <{file}> can only have src or cmd keys"
+            assert len(file_key_prefix) == 1, f"cannot mix src and cmd for same file: {file}"
+            if f"{file_key_prefix[0]}_{current_os_abbrev}" in config.files[file]:
+                file_key = f"{file_key_prefix[0]}_{current_os_abbrev}"
+            elif file_key_prefix[0] in config.files[file]:
+                file_key = file_key_prefix[0]
+            else:
                 continue
             if args.file[0] in ["save", "s"]:
-                if "src" in file_key.split("_"):
-                    cmds.append([*copy_command, os.path.expandvars(os.path.expanduser(config.files[file][file_key])), os.path.join(BASE_PATH, config.hostname, file)])
-                elif "cmd" in file_key.split("_"):
+                if file_key_prefix[0] == "src":
+                    src_file_path = os.path.expandvars(os.path.expanduser(config.files[file][file_key]))
+                    cmds.append([*copy_command, src_file_path, os.path.join(BASE_PATH, config.hostname, file)])
+                    files_to_stat.append(src_file_path)
+                elif file_key_prefix[0] == "cmd":
                     cmds.append(["BAKA_DEST", os.path.join(BASE_PATH, config.hostname, file), *config.files[file][file_key]])
             elif args.file[0] in ["restore", "r"]:
-                if "src" in file_key.split("_"):
-                    cmds.append([*copy_command, os.path.join(BASE_PATH, config.hostname, file), os.path.expandvars(os.path.expanduser(config.files[file][file_key]))])
+                if file_key_prefix[0] == "src":
+                    src_file_path = os.path.expandvars(os.path.expanduser(config.files[file][file_key]))
+                    if current_os == "windows":
+                        cmds.append([*copy_command, os.path.join(BASE_PATH, config.hostname, file), src_file_path])
+                    else:
+                        cmds.append(["sudo", *copy_command, os.path.join(BASE_PATH, config.hostname, file), src_file_path])
+                        if src_file_path in file_stats:
+                            cmds.append(["sudo", "chmod", file_stats[src_file_path]["mode"][2:], src_file_path])
+                            cmds.append(["sudo", "chown", f"{file_stats[src_file_path]['uid']}:{file_stats[src_file_path]['gid']}", src_file_path])
+        if files_to_stat:
+            cmds.append(["BAKA_STAT", *files_to_stat])
         cmds.append(["git", "add", "--ignore-errors", "--all"])
         cmds.append(["git", "commit", "-m", f"baka file {config.hostname}"])
+        if config.files_post_cmd:
+            cmds.append(config.files_post_cmd)
     elif args.job:
         if args.interactive:
             config.jobs[args.job]["interactive"] = True
@@ -606,6 +637,8 @@ def main() -> int:
                     with open(dest, "w", encoding="utf-8", errors="surrogateescape") as f:
                         proc = subprocess.run(cmd[2:], capture_output=True, text=True)
                         f.write(proc.stdout)
+                elif cmd[0] == "BAKA_STAT":
+                    os_stat_tracked_files(config, cmd[1:])
                 else:
                     proc = subprocess.run(cmd)
                 if proc.returncode != 0 and not (cmd[0] == "git" and cmd[1] == "commit"):

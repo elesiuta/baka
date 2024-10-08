@@ -18,8 +18,7 @@ options:
   --install ...  install package(s) and commit changes
   --remove ...   remove package(s) and commit changes
   --upgrade      upgrade packages on system and commit changes
-  --docker ...   usage: --docker <up|down|pull> <all|names...>
-  --podman ...   usage: --podman <up|down|pull> <all|names...>
+  --docker ...   usage: --docker <compose_subcommand> <all|names...>
   --file ...     usage: --file <save|restore> <all|names...>
   --job name     run commands for job with name (modifiers: -i, -e, -y)
   --list         show list of jobs
