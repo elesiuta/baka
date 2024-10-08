@@ -35,7 +35,7 @@ import typing
 
 import argcomplete
 
-__version__: typing.Final[str] = "0.9.1"
+__version__: typing.Final[str] = "0.9.2"
 BASE_PATH: typing.Final[str] = os.path.expanduser("~/.baka")
 
 
@@ -189,9 +189,9 @@ class Config:
             self.hostname = socket.gethostname()
 
 
-def os_stat_tracked_files(config: "Config", extra_files: list[str] = []) -> None:
+def os_stat_tracked_files(config: "Config") -> None:
     stat = {}
-    for tracked_path in list(config.tracked_paths) + extra_files:
+    for tracked_path in list(config.tracked_paths):
         if os.path.isdir(tracked_path):
             for root, dirs, files in os.walk(BASE_PATH + tracked_path, followlinks=False):
                 for file_or_folder in files + dirs:
@@ -458,12 +458,11 @@ def main() -> int:
         assert args.file[0] in ["save", "restore", "s", "r"] and len(args.file) >= 2
         assert args.file[1] != "all" or (args.file[1] == "all" and len(args.file) == 2)
         try:
-            with open(os.path.join(BASE_PATH, "stat.json"), "r", encoding="utf-8", errors="surrogateescape") as json_file:
+            with open(os.path.join(BASE_PATH, f"stat_{config.hostname}.json"), "r", encoding="utf-8", errors="surrogateescape") as json_file:
                 file_stats = json.load(json_file)
         except:
             file_stats = {}
         file_list = config.files.keys() if args.file[1] == "all" else args.file[1:]
-        files_to_stat = []
         cmds = []
         if config.files_pre_cmd:
             cmds.append(config.files_pre_cmd)
@@ -488,7 +487,8 @@ def main() -> int:
                 if file_key_prefix == "src":
                     src_file_path = os.path.expandvars(os.path.expanduser(config.files[file][file_key]))
                     cmds.append([*copy_command, src_file_path, os.path.join(BASE_PATH, config.hostname, file)])
-                    files_to_stat.append(src_file_path)
+                    file_stat = os.stat(src_file_path)
+                    file_stats[src_file_path] = {"mode": oct(file_stat.st_mode), "uid": file_stat.st_uid, "gid": file_stat.st_gid}
                 elif file_key_prefix == "cmd":
                     cmds.append(["BAKA_DEST", os.path.join(BASE_PATH, config.hostname, file), *config.files[file][file_key]])
             elif args.file[0] in ["restore", "r"]:
@@ -501,8 +501,7 @@ def main() -> int:
                         if src_file_path in file_stats:
                             cmds.append(["sudo", "chmod", file_stats[src_file_path]["mode"][2:], src_file_path])
                             cmds.append(["sudo", "chown", f"{file_stats[src_file_path]['uid']}:{file_stats[src_file_path]['gid']}", src_file_path])
-        if files_to_stat:
-            cmds.append(["BAKA_STAT", *files_to_stat])
+        cmds.append(["BAKA_STAT", json.dumps(file_stats, indent=2, separators=(',', ': '), sort_keys=True, ensure_ascii=False)])
         cmds.append(["git", "add", "--ignore-errors", "--all"])
         cmds.append(["git", "commit", "-m", f"baka file {config.hostname}"])
         if config.files_post_cmd:
@@ -639,7 +638,8 @@ def main() -> int:
                         proc = subprocess.run(cmd[2:], capture_output=True, text=True)
                         f.write(proc.stdout)
                 elif cmd[0] == "BAKA_STAT":
-                    os_stat_tracked_files(config, cmd[1:])
+                    with open(os.path.join(BASE_PATH, f"stat_{config.hostname}.json"), "w", encoding="utf-8", errors="surrogateescape") as json_file:
+                        json_file.write(cmd[1])
                 else:
                     proc = subprocess.run(cmd)
                 if proc.returncode != 0 and not (cmd[0] == "git" and cmd[1] == "commit"):
