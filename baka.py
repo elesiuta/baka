@@ -35,7 +35,7 @@ import typing
 
 import argcomplete
 
-__version__: typing.Final[str] = "0.9.0"
+__version__: typing.Final[str] = "0.9.1"
 BASE_PATH: typing.Final[str] = os.path.expanduser("~/.baka")
 
 
@@ -477,21 +477,22 @@ def main() -> int:
             file_key_prefix = set(k.split("_")[0] for k in config.files[file].keys())
             assert file_key_prefix.issubset({"src", "cmd"}), f"file <{file}> can only have src or cmd keys"
             assert len(file_key_prefix) == 1, f"cannot mix src and cmd for same file: {file}"
-            if f"{file_key_prefix[0]}_{current_os_abbrev}" in config.files[file]:
-                file_key = f"{file_key_prefix[0]}_{current_os_abbrev}"
-            elif file_key_prefix[0] in config.files[file]:
-                file_key = file_key_prefix[0]
+            file_key_prefix = list(file_key_prefix)[0]
+            if f"{file_key_prefix}_{current_os_abbrev}" in config.files[file]:
+                file_key = f"{file_key_prefix}_{current_os_abbrev}"
+            elif file_key_prefix in config.files[file]:
+                file_key = file_key_prefix
             else:
                 continue
             if args.file[0] in ["save", "s"]:
-                if file_key_prefix[0] == "src":
+                if file_key_prefix == "src":
                     src_file_path = os.path.expandvars(os.path.expanduser(config.files[file][file_key]))
                     cmds.append([*copy_command, src_file_path, os.path.join(BASE_PATH, config.hostname, file)])
                     files_to_stat.append(src_file_path)
-                elif file_key_prefix[0] == "cmd":
+                elif file_key_prefix == "cmd":
                     cmds.append(["BAKA_DEST", os.path.join(BASE_PATH, config.hostname, file), *config.files[file][file_key]])
             elif args.file[0] in ["restore", "r"]:
-                if file_key_prefix[0] == "src":
+                if file_key_prefix == "src":
                     src_file_path = os.path.expandvars(os.path.expanduser(config.files[file][file_key]))
                     if current_os == "windows":
                         cmds.append([*copy_command, os.path.join(BASE_PATH, config.hostname, file), src_file_path])
