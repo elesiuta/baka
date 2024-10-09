@@ -35,7 +35,7 @@ import typing
 
 import argcomplete
 
-__version__: typing.Final[str] = "0.9.2"
+__version__: typing.Final[str] = "0.9.3"
 BASE_PATH: typing.Final[str] = os.path.expanduser("~/.baka")
 
 
@@ -487,8 +487,11 @@ def main() -> int:
                 if file_key_prefix == "src":
                     src_file_path = os.path.expandvars(os.path.expanduser(config.files[file][file_key]))
                     cmds.append([*copy_command, src_file_path, os.path.join(BASE_PATH, config.hostname, file)])
-                    file_stat = os.stat(src_file_path)
-                    file_stats[src_file_path] = {"mode": oct(file_stat.st_mode), "uid": file_stat.st_uid, "gid": file_stat.st_gid}
+                    try:
+                        file_stat = os.stat(src_file_path)
+                        file_stats[src_file_path] = {"mode": oct(file_stat.st_mode), "uid": file_stat.st_uid, "gid": file_stat.st_gid}
+                    except:
+                        pass
                 elif file_key_prefix == "cmd":
                     cmds.append(["BAKA_DEST", os.path.join(BASE_PATH, config.hostname, file), *config.files[file][file_key]])
             elif args.file[0] in ["restore", "r"]:
