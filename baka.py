@@ -40,7 +40,7 @@ import typing
 
 import argcomplete
 
-__version__: typing.Final[str] = "0.10.0"
+__version__: typing.Final[str] = "0.10.1"
 BASE_PATH: typing.Final[str] = os.path.expanduser("~/.baka")
 
 
@@ -575,7 +575,7 @@ def main() -> int:
                 cwd=BASE_PATH
             )
             tracked_files = git_tree.stdout.strip().splitlines()
-            if file_path not in tracked_files:
+            if file_path.lstrip("/") not in tracked_files:
                 print(f"Error: File '{file_path}' is not tracked, can only edit tracked files with baka", file=sys.stderr)
                 return 1
         except Exception:
