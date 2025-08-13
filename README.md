@@ -19,7 +19,7 @@ options:
   --remove ...   remove package(s) and commit changes
   --upgrade      upgrade packages on system and commit changes
   --docker ...   usage: --docker <compose_subcommand> <all|names...>
-  --file ...     usage: --file <save|restore> <all|names...>
+  --edit file    edit tracked file with commit before and after
   --job name     run commands for job with name (modifiers: -i, -e, -y)
   --list         show list of jobs
   --sysck        run commands for system checks and commits output

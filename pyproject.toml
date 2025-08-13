@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bakabakabaka"
+dynamic = ["version"]
+description = "the stupid configuration tracker using the stupid content tracker"
+urls = { "Homepage" = "https://github.com/elesiuta/baka" }
+license = "GPL-3.0-or-later"
+readme = "README.md"
+dependencies = [
+    "argcomplete",
+]
+
+[project.scripts]
+baka = "baka:main"
+
+[tool.setuptools]
+py-modules = ["baka"]
+license-files = ["LICENSE"]
+
+[tool.setuptools.dynamic]
+version = { attr = "baka.__version__" }

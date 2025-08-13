@@ -1,5 +1,10 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
 # PYTHON_ARGCOMPLETE_OK
+# /// script
+# dependencies = [
+#     "argcomplete",
+# ]
+# ///
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -20,6 +25,7 @@ import argparse
 import datetime
 import email
 import email.mime.text
+import email.message
 import functools
 import hashlib
 import json
@@ -27,7 +33,6 @@ import os
 import shlex
 import shutil
 import smtplib
-import socket
 import subprocess
 import sys
 import time
@@ -35,11 +40,25 @@ import typing
 
 import argcomplete
 
-__version__: typing.Final[str] = "0.9.3"
+__version__: typing.Final[str] = "0.10.0"
 BASE_PATH: typing.Final[str] = os.path.expanduser("~/.baka")
 
 
 def init_parser() -> argparse.ArgumentParser:
+    def job_completer(prefix: str, **kwargs: typing.Any) -> list[str]:
+        try:
+            with open(os.path.join(BASE_PATH, "config.json"), "r", encoding="utf-8", errors="surrogateescape") as json_file:
+                # remove comments from json file
+                raw_text = json_file.readlines()
+                for i in reversed(range(len(raw_text))):
+                    if raw_text[i].lstrip().startswith("#"):
+                        _ = raw_text.pop(i)
+                    elif raw_text[i].lstrip().startswith("//"):
+                        _ = raw_text.pop(i)
+                config = json.loads("".join(raw_text))
+            return [job for job in config["jobs"] if job.startswith(prefix)]
+        except Exception:
+            return []
     parser = argparse.ArgumentParser(description="the stupid configuration tracker using the stupid content tracker",
                                      usage="%(prog)s [--dry-run] <argument>")
     parser.add_argument("--version", action="version", version=__version__)
@@ -64,11 +83,12 @@ def init_parser() -> argparse.ArgumentParser:
                          help="upgrade packages on system and commit changes")
     maingrp.add_argument("--docker", dest="docker", nargs=argparse.REMAINDER,
                          help="usage: --docker <compose_subcommand> <all|names...>")
-    maingrp.add_argument("--file", dest="file", nargs=argparse.REMAINDER,
-                         help="usage: --file <save|restore> <all|names...>")
+    maingrp.add_argument("--edit", dest="edit", type=str, metavar="file",
+                         help="edit tracked file with commit before and after")
     maingrp.add_argument("--job", dest="job", type=str, metavar="name",
-                         help="run commands for job with name (modifiers: -i, -e, -y)")
-    maingrp.add_argument("--list", dest="list", action="store_true",
+                         help="run commands for job with name (modifiers: -i, -e, -y)"
+                         ).completer = job_completer  # type: ignore[assignment]
+    maingrp.add_argument("--list", dest="job_list", action="store_true",
                          help="show list of jobs")
     maingrp.add_argument("--sysck", dest="system_checks", action="store_true",
                          help="run commands for system checks and commits output")
@@ -92,14 +112,79 @@ def init_parser() -> argparse.ArgumentParser:
     return parser
 
 
+class BakaArgs(argparse.Namespace):
+    hash_and_copy_files: bool
+    init: bool
+    commit: str | None
+    push: bool
+    pull: bool
+    untrack: list[str] | None
+    install: list[str] | None
+    remove: list[str] | None
+    upgrade: bool
+    docker: list[str] | None
+    edit: str | None
+    job: str | None
+    job_list: bool
+    system_checks: bool
+    system_scans: bool
+    diff: bool
+    log: bool
+    show: bool
+    interactive: bool
+    error_interactive: bool
+    yes: bool
+    dry_run: bool
+
+
+EmailConfig = typing.TypedDict("EmailConfig", {
+    "cc": str | None,
+    "from": str,
+    "html": bool,
+    "smtp_server": str,
+    "smtp_port": int,
+    "smtp_username": str,
+    "smtp_password": str
+})
+
+
+JobEmail = typing.TypedDict("JobEmail", {
+    "to": str,
+    "subject": str
+})
+
+
+JobConfig = typing.TypedDict("JobConfig", {
+    "commands": list[list[str]],
+    "email": JobEmail | None,
+    "exit_non_zero": bool | None,
+    "interactive": bool | None,
+    "shlex_split": bool | None,
+    "verbosity": str | None,
+    "write": str | None
+})
+
+
+TrackedPathConfig = typing.TypedDict("TrackedPathConfig", {
+    "exclude": list[str] | None,
+    "include": list[str] | None,
+    "file_starts_with": str | None,
+    "path_starts_with": str | None,
+    "max_depth": int | None,
+    "max_size": int | None,
+    "test_utf_readable": bool | None,
+})
+
+
 class Config:
     def __init__(self):
         # default config
         self.cmd_docker_compose = ["sudo", "docker", "compose"]
+        self.cmd_editor = ["nano"]
         self.cmd_install = ["sudo", "apt", "install"]
         self.cmd_remove = ["sudo", "apt", "autoremove", "--purge"]
         self.cmd_upgrade = ["bash", "-c", "sudo apt update && sudo apt dist-upgrade"]
-        self.email = {
+        self.email: EmailConfig = {
             "cc": None,
             "from": "myemail@domain.com",
             "html": True,
@@ -108,24 +193,14 @@ class Config:
             "smtp_username": "username",
             "smtp_password": "password"
         }
-        self.files = {
-            "example_file_a": {
-                "src": "path/to/file",
-            },
-            "example_file_b": {
-                "cmd": ["echo", "command to generate file"],
-            }
-        }
-        self.files_pre_cmd = []
-        self.files_post_cmd = []
-        self.jobs = {
+        self.jobs: dict[str, JobConfig] = {
             "example_job_name": {
                 "commands": [
                     ["echo", "hello world"],
                     ["echo", "task completed"]
                 ],
                 "email": {
-                    "to": "email@domain.com or null",
+                    "to": "email@domain.com",
                     "subject": "example subject"
                 },
                 "exit_non_zero": False,
@@ -152,7 +227,7 @@ class Config:
             "lynis": "sudo lynis audit system",
             "rkhunter": "sudo rkhunter --check --skip-keypress",
         }
-        self.tracked_paths = {k: v for k, v in {
+        self.tracked_paths: dict[str, TrackedPathConfig] = {k: v for k, v in {  # type: ignore[var-annotated]
             "/etc": {"max_size": 128000},
             os.path.expanduser("~"): {"max_depth": 2, "max_size": 128000, "path_starts_with": ".", "exclude": [".ssh"]},
             os.path.expanduser("~/.config"): {"max_depth": 2, "max_size": 128000, "exclude": ["log", "Local State", "TransportSecurity"]},
@@ -181,12 +256,6 @@ class Config:
                 os.makedirs(os.path.dirname(config_path))
             with open(config_path, "w", encoding="utf-8", errors="surrogateescape") as json_file:
                 json.dump(vars(self), json_file, indent=2, separators=(',', ': '), sort_keys=True, ensure_ascii=False)
-        # get the system hostname, usually /etc/hostname but can override with .baka/hostname (not in config.json or committed)
-        if os.path.exists(os.path.join(BASE_PATH, "hostname")):
-            with open(os.path.join(BASE_PATH, "hostname"), "r") as f:
-                self.hostname = f.read().strip()
-        else:
-            self.hostname = socket.gethostname()
 
 
 def os_stat_tracked_files(config: "Config") -> None:
@@ -210,18 +279,18 @@ def os_stat_tracked_files(config: "Config") -> None:
 
 def hash_and_copy_files(config: "Config") -> None:
     # also keep track of hashes, need to read the files anyways and can save on writes
-    new_hashes = {}
-    old_hashes = {}
+    new_hashes: dict[str, str] = {}
+    old_hashes: dict[str, str] = {}
     omitted = {}
     if os.path.exists(os.path.join(BASE_PATH, "sha256.json")):
         with open(os.path.join(BASE_PATH, "sha256.json"), "r", encoding="utf-8", errors="surrogateescape") as json_file:
             old_hashes = json.load(json_file)
     for tracked_path in config.tracked_paths:
         # set default values (no conditions) and load conditions for which files to track/copy
-        conditions = {"exclude": [], "include": [], "file_starts_with": "", "path_starts_with": "", "max_depth": None, "max_size": None, "test_utf_readable": True}
+        conditions: TrackedPathConfig = {"exclude": [], "include": [], "file_starts_with": "", "path_starts_with": "", "max_depth": None, "max_size": None, "test_utf_readable": True}
         for condition in config.tracked_paths[tracked_path]:
             conditions[condition] = config.tracked_paths[tracked_path][condition]
-        for root, dirs, files in os.walk(tracked_path, followlinks=False):
+        for root, dirs, files in os.walk(tracked_path, followlinks=False, onerror=None):
             # check conditions
             relpath = os.path.relpath(root, tracked_path)
             # ~/.baka is a subfolder of the path to track
@@ -280,12 +349,39 @@ def hash_and_copy_files(config: "Config") -> None:
                 except Exception as e:
                     omitted[file_path] = type(e).__name__
         # remove copies of tracked files that no longer exist on system
-        for root, dirs, files in os.walk(BASE_PATH + tracked_path, followlinks=False):
+        for root, dirs, files in os.walk(BASE_PATH + tracked_path, followlinks=False, onerror=None):
             for file in files:
                 if not os.path.exists("/" + os.path.relpath(os.path.join(root, file), BASE_PATH)):
                     if not os.path.islink(os.path.join(root, file)):
                         os.chmod(os.path.join(root, file), 0o200)
                     os.remove(os.path.join(root, file))
+        # handle individual files in tracked paths
+        if os.path.isfile(tracked_path):
+            # assert that no conditions are specified for individual files
+            assert not config.tracked_paths[tracked_path], f"condition(s) are not supported for individually tracked files: {tracked_path}: {config.tracked_paths[tracked_path]}"
+            file_path = tracked_path
+            try:
+                if os.path.islink(file_path):
+                    omitted[file_path] = f"islink: {os.path.realpath(file_path)}"
+                # hash and copy file if changed
+                copy_path = BASE_PATH + file_path
+                with open(file_path, "rb") as f:
+                    file_contents = f.read()
+                    new_hash = hashlib.sha256(file_contents).hexdigest()
+                    new_hashes[file_path] = new_hash
+                if new_hash == old_hashes.get(file_path, ""):
+                    continue
+                # dest might be readonly since permissions are copied, temporarily make it writable
+                if os.path.exists(copy_path) and not os.path.islink(copy_path):
+                    os.chmod(copy_path, 0o200)
+                elif not os.path.isdir(os.path.dirname(copy_path)):
+                    os.makedirs(os.path.dirname(copy_path))
+                with open(copy_path, "wb") as f:
+                    f.write(file_contents)
+                shutil.copystat(file_path, copy_path)
+                del file_contents
+            except Exception as e:
+                omitted[file_path] = type(e).__name__
     # write new hashes and omitted files with reasons
     with open(os.path.join(BASE_PATH, "sha256.json"), "w", encoding="utf-8", errors="surrogateescape") as json_file:
         json.dump(new_hashes, json_file, indent=2, separators=(',', ': '), sort_keys=True, ensure_ascii=False)
@@ -301,16 +397,18 @@ def copy_and_git_add_all() -> list[list[str]]:
     return cmds
 
 
-def send_email(config_email: dict, job_email: dict, body: str) -> int:
-    message = email.message.EmailMessage()
+def send_email(config_email: EmailConfig, job_email: JobEmail, body: str) -> int:
+    message: email.message.EmailMessage = email.message.EmailMessage()
     message["From"] = config_email["from"]
     message["To"] = job_email["to"]
     if config_email["cc"]:
         message["Cc"] = config_email["cc"]
     message["Subject"] = job_email["subject"]
     if config_email["html"]:
-        body = email.mime.text.MIMEText("<pre>" + body + "</pre>", "html")
-    message.set_content(body)
+        body_html = email.mime.text.MIMEText("<pre>" + body + "</pre>", "html")
+        message.set_content(body_html)
+    else:
+        message.set_content(body)
     with smtplib.SMTP(config_email["smtp_server"], int(config_email["smtp_port"])) as smtp_server_instance:
         smtp_server_instance.ehlo()
         smtp_server_instance.starttls()
@@ -328,7 +426,7 @@ def main() -> int:
         print("Warning: baka does not function properly with the -O (optimize) flag", file=sys.stderr)
     # parse arguments
     parser = init_parser()
-    args = parser.parse_args()
+    args: BakaArgs = parser.parse_args(namespace=BakaArgs())
     # init config
     config = Config()
     # change cwd to repo folder
@@ -354,11 +452,11 @@ def main() -> int:
         cmds = [
             ["git", "init"],
             ["git", "config", "user.name", "baka admin"],
-            ["git", "config", "user.email", "baka@" + config.hostname],
+            ["git", "config", "user.email", "baka@" + os.uname().nodename],
             ["touch", "error.log"],
+            ["touch", "packages.txt"],
             ["bash", "-c", "echo '"
                 "history.log\n"
-                "hostname\n"
                 "docker/**\n"
                 "ignore/**\n"
                 "!**/config.php\n"
@@ -378,10 +476,7 @@ def main() -> int:
                 "**/fish_history\n"
                 "**/xonsh-*.json\n"
             "' > .gitignore"],
-            ["bash", "-c", "read -p 'Press enter to open .gitignore with nano'"],
-            ["nano", os.path.join(BASE_PATH, ".gitignore")],
-            ["bash", "-c", "read -p 'Press enter to add files to repository'"],
-            *copy_and_git_add_all(),
+            ["git", "add", "--ignore-errors", "--all"],
             ["mkdir", "-p", "docker"],
             ["mkdir", "-p", "ignore"],
             ["mkdir", "-p", "scripts"],
@@ -403,7 +498,7 @@ def main() -> int:
             ["git", "pull"]
         ]
     elif args.untrack:
-        paths = []
+        paths: list[str] = []
         for path in sorted(args.untrack):
             if os.path.isabs(path):
                 paths.append(os.path.normpath(os.path.relpath(path)))
@@ -418,18 +513,28 @@ def main() -> int:
             ["git", "commit", "-m", "baka untrack %s" % " ".join(paths)]
         ]
     elif args.install:
+        with open(os.path.join(BASE_PATH, "packages.txt"), "r") as f:
+            packages = set(f.read().splitlines())
+            packages.update(args.install)
+            packages = sorted(packages)
         cmds = [
             *copy_and_git_add_all(),
             ["git", "commit", "-m", "baka pre-install"],
             config.cmd_install + args.install,
+            ["bash", "-c", "echo '%s' > packages.txt" % "\n".join(packages)],
             *copy_and_git_add_all(),
             ["git", "commit", "-m", "baka install " + " ".join(args.install)]
         ]
     elif args.remove is not None:
+        with open(os.path.join(BASE_PATH, "packages.txt"), "r") as f:
+            packages = set(f.read().splitlines())
+            packages.difference_update(args.remove)
+            packages = sorted(packages)
         cmds = [
             *copy_and_git_add_all(),
             ["git", "commit", "-m", "baka pre-remove"],
             config.cmd_remove + args.remove,
+            ["bash", "-c", "echo '%s' > packages.txt" % "\n".join(packages)],
             *copy_and_git_add_all(),
             ["git", "commit", "-m", "baka remove " + " ".join(args.remove)]
         ]
@@ -445,8 +550,8 @@ def main() -> int:
         compose_cmd: str = shlex.join(config.cmd_docker_compose)
         assert len(args.docker) >= 2
         assert args.docker[1] != "all" or (args.docker[1] == "all" and len(args.docker) == 2)
-        compose_arg = "up -d" if args.docker[0] == "up" else args.docker[0]
-        cmds = []
+        compose_arg: str = "up -d" if args.docker[0] == "up" else args.docker[0]
+        cmds: list[list[str]] = []
         if args.docker[1] == "all":
             for folder in sorted(os.listdir("docker")):
                 if not os.path.exists(os.path.join("docker", folder, ".dockerignore")):
@@ -454,69 +559,49 @@ def main() -> int:
         else:
             for folder in args.docker[1:]:
                 cmds.append(["bash", "-c", f"cd docker/{folder} && {compose_cmd} {compose_arg}"])
-    elif args.file:
-        assert args.file[0] in ["save", "restore", "s", "r"] and len(args.file) >= 2
-        assert args.file[1] != "all" or (args.file[1] == "all" and len(args.file) == 2)
+    elif args.edit:
+        if os.path.isabs(args.edit):
+            file_path = os.path.normpath(args.edit)
+        else:
+            file_path = os.path.normpath(os.path.join(original_cwd, args.edit))
+        if file_path.startswith(BASE_PATH):
+            print("Error: Cannot edit files under ~/.baka. Edit the original system file instead.", file=sys.stderr)
+            return 1
         try:
-            with open(os.path.join(BASE_PATH, f"stat_{config.hostname}.json"), "r", encoding="utf-8", errors="surrogateescape") as json_file:
-                file_stats = json.load(json_file)
-        except:
-            file_stats = {}
-        file_list = config.files.keys() if args.file[1] == "all" else args.file[1:]
-        cmds = []
-        if config.files_pre_cmd:
-            cmds.append(config.files_pre_cmd)
-        cmds.append(["git", "add", "--ignore-errors", "--all"])
-        cmds.append(["git", "commit", "-m", f"baka pre-file {config.hostname}"])
-        current_os = "windows" if os.name == "nt" else "mac" if sys.platform == "darwin" else "linux"
-        current_os_abbrev = current_os[0]
-        copy_command = ["copy", "/Y"] if current_os == "windows" else ["cp", "-f"]
-        os.makedirs(os.path.join(BASE_PATH, config.hostname), exist_ok=True)
-        for file in file_list:
-            file_key_prefix = set(k.split("_")[0] for k in config.files[file].keys())
-            assert file_key_prefix.issubset({"src", "cmd"}), f"file <{file}> can only have src or cmd keys"
-            assert len(file_key_prefix) == 1, f"cannot mix src and cmd for same file: {file}"
-            file_key_prefix = list(file_key_prefix)[0]
-            if f"{file_key_prefix}_{current_os_abbrev}" in config.files[file]:
-                file_key = f"{file_key_prefix}_{current_os_abbrev}"
-            elif file_key_prefix in config.files[file]:
-                file_key = file_key_prefix
-            else:
-                continue
-            if args.file[0] in ["save", "s"]:
-                if file_key_prefix == "src":
-                    src_file_path = os.path.expandvars(os.path.expanduser(config.files[file][file_key]))
-                    cmds.append([*copy_command, src_file_path, os.path.join(BASE_PATH, config.hostname, file)])
-                    try:
-                        file_stat = os.stat(src_file_path)
-                        file_stats[src_file_path] = {"mode": oct(file_stat.st_mode), "uid": file_stat.st_uid, "gid": file_stat.st_gid}
-                    except:
-                        pass
-                elif file_key_prefix == "cmd":
-                    cmds.append(["BAKA_DEST", os.path.join(BASE_PATH, config.hostname, file), *config.files[file][file_key]])
-            elif args.file[0] in ["restore", "r"]:
-                if file_key_prefix == "src":
-                    src_file_path = os.path.expandvars(os.path.expanduser(config.files[file][file_key]))
-                    if current_os == "windows":
-                        cmds.append([*copy_command, os.path.join(BASE_PATH, config.hostname, file), src_file_path])
-                    else:
-                        cmds.append(["sudo", *copy_command, os.path.join(BASE_PATH, config.hostname, file), src_file_path])
-                        if src_file_path in file_stats:
-                            cmds.append(["sudo", "chmod", file_stats[src_file_path]["mode"][2:], src_file_path])
-                            cmds.append(["sudo", "chown", f"{file_stats[src_file_path]['uid']}:{file_stats[src_file_path]['gid']}", src_file_path])
-        cmds.append(["BAKA_STAT", json.dumps(file_stats, indent=2, separators=(',', ': '), sort_keys=True, ensure_ascii=False)])
-        cmds.append(["git", "add", "--ignore-errors", "--all"])
-        cmds.append(["git", "commit", "-m", f"baka file {config.hostname}"])
-        if config.files_post_cmd:
-            cmds.append(config.files_post_cmd)
+            git_tree = subprocess.run(
+                ["git", "ls-tree", "-r", "HEAD", "--name-only"],
+                capture_output=True,
+                text=True,
+                cwd=BASE_PATH
+            )
+            tracked_files = git_tree.stdout.strip().splitlines()
+            if file_path not in tracked_files:
+                print(f"Error: File '{file_path}' is not tracked, can only edit tracked files with baka", file=sys.stderr)
+                return 1
+        except Exception:
+            print(f"Error: Could not check if file '{file_path}' is tracked", file=sys.stderr)
+            return 1
+        if not os.access(file_path, os.W_OK):
+            config.cmd_editor.insert(0, "sudo")
+        cmds = [
+            *copy_and_git_add_all(),
+            ["git", "commit", "-m", "baka pre-edit"],
+            config.cmd_editor + [file_path],
+            *copy_and_git_add_all(),
+            ["git", "commit", "-m", f"baka edit {file_path}"]
+        ]
     elif args.job:
         if args.interactive:
             config.jobs[args.job]["interactive"] = True
-        cmds = config.jobs[args.job]["commands"]
-    elif args.list:
+        if config.jobs[args.job].get("shlex_split", False):
+            assert all(len(cmd) == 1 for cmd in config.jobs[args.job]["commands"]), "shlex_split requires a single command string per sublist"
+            cmds = [shlex.split(cmd[0]) for cmd in config.jobs[args.job]["commands"]]
+        else:
+            cmds = config.jobs[args.job]["commands"]
+    elif args.job_list:
         cmds = [
             ["echo", "Email\tExit!0\tInter.\tVerb.\tWrite\tJob Name\n================================================"],
-            *[["echo", "%s\t%s\t%s\t%s\t%s\t%s" % (str(functools.reduce(lambda d, k : d.get(k) if isinstance(d, dict) and d.get(k) else False, ("email", "to"), config.jobs[job]))[:6],
+            *[["echo", "%s\t%s\t%s\t%s\t%s\t%s" % (str(functools.reduce(lambda d, k : d.get(k) if isinstance(d, dict) and d.get(k) else False, ("email", "to"), config.jobs[job]))[:6],  # type: ignore[var-annotated]
                                                    bool(config.jobs[job].get("exit_non_zero")),
                                                    bool(config.jobs[job].get("interactive")),
                                                    str(config.jobs[job].get("verbosity", "debug"))[:6],
@@ -560,16 +645,13 @@ def main() -> int:
         parser.print_usage()
         return 2
     # 2. Execute (or print if dry-run) commands
-    command_output = []
+    cmd: list[str] = []
+    command_output: list[str] = []
     error_message = ""
     pending_stat = False
     return_code = 0
     try:
         for cmd in cmds:
-            if args.job and config.jobs[args.job].get("shlex_split", False):
-                if type(cmd) == list and len(cmd) == 1:
-                    cmd = cmd[0]
-                cmd = shlex.split(cmd)
             if args.dry_run:
                 print(shlex.join(cmd))
                 command_output.append("dry-run")
@@ -579,8 +661,8 @@ def main() -> int:
             if args.job:
                 # run command as part of job, otherwise run command normally
                 capture_output = bool(
-                    (config.jobs[args.job].get("write")) or
-                    (isinstance(config.jobs[args.job].get("email"), dict) and config.jobs[args.job]["email"].get("to"))
+                    config.jobs.get(args.job, {}).get("write") or
+                    config.jobs.get(args.job, {}).get("email", {}).get("to")  # type: ignore[var-annotated]
                 )
                 verbosity = config.jobs[args.job].get("verbosity", "debug")
                 verbosity = verbosity if verbosity else "debug"
@@ -633,20 +715,6 @@ def main() -> int:
                     command_output.append("\n")
                 elif verbosity in ["debug", "info", "error"]:
                     print("")
-            elif args.file:
-                # save outputs of non-copy commands as files, otherwise run command normally
-                if cmd[0] == "BAKA_DEST":
-                    dest = cmd[1]
-                    with open(dest, "w", encoding="utf-8", errors="surrogateescape") as f:
-                        proc = subprocess.run(cmd[2:], capture_output=True, text=True)
-                        f.write(proc.stdout)
-                elif cmd[0] == "BAKA_STAT":
-                    with open(os.path.join(BASE_PATH, f"stat_{config.hostname}.json"), "w", encoding="utf-8", errors="surrogateescape") as json_file:
-                        json_file.write(cmd[1])
-                else:
-                    proc = subprocess.run(cmd)
-                if proc.returncode != 0 and not (cmd[0] == "git" and cmd[1] == "commit"):
-                    return_code += 1
             else:
                 # run command normally
                 if cmd == [sys.executable, os.path.abspath(__file__), "--_hash_and_copy_files"]:
@@ -658,7 +726,9 @@ def main() -> int:
                 if proc.returncode != 0 and not (cmd[0] == "git" and cmd[1] == "commit"):
                     return_code += 1
     except Exception as e:
-        error_message = "Error baka line: %s For: %s %s %s" % (sys.exc_info()[2].tb_lineno, shlex.join(cmd), type(e).__name__, e.args)
+        tb = sys.exc_info()[2]
+        line_no = tb.tb_lineno if tb is not None else "unknown"
+        error_message = "Error baka line: %s For: %s %s %s" % (line_no, shlex.join(cmd), type(e).__name__, e.args)
         command_output.append(error_message)
         print(error_message, file=sys.stderr)
     # 3. Append time and arguments to history.log, also log command output if job
@@ -674,19 +744,19 @@ def main() -> int:
             log_file.write(log_entry + "\n")
     # email or write command output
     if args.job:
-        command_output = "\n".join(command_output)
-        if isinstance(config.jobs[args.job].get("email"), dict) and config.jobs[args.job]["email"].get("to"):
+        command_output_str = "\n".join(command_output)
+        if isinstance(config.jobs[args.job].get("email"), dict) and config.jobs[args.job]["email"].get("to"):  # type: ignore[var-annotated]
             try:
-                send_email(config.email, config.jobs[args.job]["email"], command_output)
+                send_email(config.email, config.jobs[args.job]["email"], command_output_str)  # type: ignore[var-annotated]
             except Exception as e:
-                error_email = "--- %s ---\nEmail Error: %s %s\nMessage:\n%s" % (time.ctime(), type(e).__name__, e.args, command_output)
+                error_email = "--- %s ---\nEmail Error: %s %s\nMessage:\n%s" % (time.ctime(), type(e).__name__, e.args, command_output_str)
                 with open(os.path.join(BASE_PATH, "error.log"), "a", encoding="utf-8", errors="surrogateescape") as log_file:
                     log_file.write(error_email + "\n")
         if config.jobs[args.job].get("write"):
-            file_path = os.path.abspath(datetime.datetime.now().strftime(config.jobs[args.job]["write"]))
+            file_path = os.path.abspath(datetime.datetime.now().strftime(config.jobs[args.job]["write"]))  # type: ignore[var-annotated]
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             with open(file_path, "w", encoding="utf-8", errors="backslashreplace") as f:
-                f.write(command_output)
+                f.write(command_output_str)
     return return_code
 
 
