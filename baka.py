@@ -40,7 +40,7 @@ import typing
 
 import argcomplete
 
-__version__: typing.Final[str] = "0.10.1"
+__version__: typing.Final[str] = "0.10.2"
 BASE_PATH: typing.Final[str] = os.path.expanduser("~/.baka")
 
 
@@ -259,7 +259,7 @@ class Config:
 
 
 def os_stat_tracked_files(config: "Config") -> None:
-    stat = {}
+    stat: dict[str, dict[str, str | int]] = {}
     for tracked_path in list(config.tracked_paths):
         if os.path.isdir(tracked_path):
             for root, dirs, files in os.walk(BASE_PATH + tracked_path, followlinks=False):
@@ -268,11 +268,13 @@ def os_stat_tracked_files(config: "Config") -> None:
                     if os.path.exists(file_path):
                         file_stat = os.stat(file_path)
                         stat[file_path] = {"mode": oct(file_stat.st_mode), "uid": file_stat.st_uid, "gid": file_stat.st_gid}
+                        stat[file_path].update({xattr: os.getxattr(file_path, xattr).decode("utf-8", errors="surrogateescape").rstrip("\0") for xattr in os.listxattr(file_path)})
         elif os.path.isfile(tracked_path):
             file_path = tracked_path
             if os.path.exists(BASE_PATH + file_path):
                 file_stat = os.stat(file_path)
                 stat[file_path] = {"mode": oct(file_stat.st_mode), "uid": file_stat.st_uid, "gid": file_stat.st_gid}
+                stat[file_path].update({xattr: os.getxattr(file_path, xattr).decode("utf-8", errors="surrogateescape").rstrip("\0") for xattr in os.listxattr(file_path)})
     with open(os.path.join(BASE_PATH, "stat.json"), "w", encoding="utf-8", errors="surrogateescape") as json_file:
         json.dump(stat, json_file, indent=2, separators=(',', ': '), sort_keys=True, ensure_ascii=False)
 
