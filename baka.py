@@ -40,7 +40,7 @@ import typing
 
 import argcomplete
 
-__version__: typing.Final[str] = "0.10.2"
+__version__: typing.Final[str] = "0.10.3"
 BASE_PATH: typing.Final[str] = os.path.expanduser("~/.baka")
 
 
@@ -399,6 +399,23 @@ def copy_and_git_add_all() -> list[list[str]]:
     return cmds
 
 
+def update_packages_list(args: BakaArgs, return_code: int) -> None:
+    if return_code != 0:
+        return
+    elif args.install:
+        with open(os.path.join(BASE_PATH, "packages.txt"), "w") as f:
+            packages = set(f.read().splitlines())
+            packages.update(args.install)
+            packages = sorted(packages)
+            f.write("\n".join(packages) + "\n")
+    elif args.remove is not None:
+        with open(os.path.join(BASE_PATH, "packages.txt"), "w") as f:
+            packages = set(f.read().splitlines())
+            packages.difference_update(args.remove)
+            packages = sorted(packages)
+            f.write("\n".join(packages) + "\n")
+
+
 def send_email(config_email: EmailConfig, job_email: JobEmail, body: str) -> int:
     message: email.message.EmailMessage = email.message.EmailMessage()
     message["From"] = config_email["from"]
@@ -515,28 +532,20 @@ def main() -> int:
             ["git", "commit", "-m", "baka untrack %s" % " ".join(paths)]
         ]
     elif args.install:
-        with open(os.path.join(BASE_PATH, "packages.txt"), "r") as f:
-            packages = set(f.read().splitlines())
-            packages.update(args.install)
-            packages = sorted(packages)
         cmds = [
             *copy_and_git_add_all(),
             ["git", "commit", "-m", "baka pre-install"],
             config.cmd_install + args.install,
-            ["bash", "-c", "echo '%s' > packages.txt" % "\n".join(packages)],
+            ["echo", "Updating packages.txt if successful"],
             *copy_and_git_add_all(),
             ["git", "commit", "-m", "baka install " + " ".join(args.install)]
         ]
     elif args.remove is not None:
-        with open(os.path.join(BASE_PATH, "packages.txt"), "r") as f:
-            packages = set(f.read().splitlines())
-            packages.difference_update(args.remove)
-            packages = sorted(packages)
         cmds = [
             *copy_and_git_add_all(),
             ["git", "commit", "-m", "baka pre-remove"],
             config.cmd_remove + args.remove,
-            ["bash", "-c", "echo '%s' > packages.txt" % "\n".join(packages)],
+            ["echo", "Updating packages.txt if successful"],
             *copy_and_git_add_all(),
             ["git", "commit", "-m", "baka remove " + " ".join(args.remove)]
         ]
@@ -556,7 +565,7 @@ def main() -> int:
         cmds: list[list[str]] = []
         if args.docker[1] == "all":
             for folder in sorted(os.listdir("docker")):
-                if not os.path.exists(os.path.join("docker", folder, ".dockerignore")):
+                if not os.path.exists(os.path.join("docker", folder, ".bakaignore")):
                     cmds.append(["bash", "-c", f"cd docker/{folder} && {compose_cmd} {compose_arg}"])
         else:
             for folder in args.docker[1:]:
@@ -660,7 +669,7 @@ def main() -> int:
                 command_output.append(">>> " + shlex.join(cmd))
                 continue
             # execute command if not dry-run
-            if args.job:
+            elif args.job:
                 # run command as part of job, otherwise run command normally
                 capture_output = bool(
                     config.jobs.get(args.job, {}).get("write") or
@@ -719,7 +728,9 @@ def main() -> int:
                     print("")
             else:
                 # run command normally
-                if cmd == [sys.executable, os.path.abspath(__file__), "--_hash_and_copy_files"]:
+                if cmd == ["echo", "Updating packages.txt if successful"]:
+                    update_packages_list(args, return_code)
+                elif cmd == [sys.executable, os.path.abspath(__file__), "--_hash_and_copy_files"]:
                     pending_stat = True
                 elif pending_stat:
                     os_stat_tracked_files(config)
