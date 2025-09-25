@@ -40,7 +40,7 @@ import typing
 
 import argcomplete
 
-__version__: typing.Final[str] = "0.10.3"
+__version__: typing.Final[str] = "0.10.4"
 BASE_PATH: typing.Final[str] = os.path.expanduser("~/.baka")
 
 
@@ -403,16 +403,19 @@ def update_packages_list(args: BakaArgs, return_code: int) -> None:
     if return_code != 0:
         return
     elif args.install:
-        with open(os.path.join(BASE_PATH, "packages.txt"), "w") as f:
+        with open(os.path.join(BASE_PATH, "packages.txt"), "r+") as f:
             packages = set(f.read().splitlines())
             packages.update(args.install)
             packages = sorted(packages)
+            f.seek(0)
             f.write("\n".join(packages) + "\n")
     elif args.remove is not None:
-        with open(os.path.join(BASE_PATH, "packages.txt"), "w") as f:
+        with open(os.path.join(BASE_PATH, "packages.txt"), "r+") as f:
             packages = set(f.read().splitlines())
             packages.difference_update(args.remove)
             packages = sorted(packages)
+            f.seek(0)
+            f.truncate(0)
             f.write("\n".join(packages) + "\n")
 
 
